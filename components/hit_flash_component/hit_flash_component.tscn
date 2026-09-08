@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://bmkr84x33203k"]
-
-[ext_resource type="Script" uid="uid://qh30lijols1x" path="res://components/hit_flash_component/hit_flash_component.gd" id="1_2d6iq"]
-
-[node name="HitFlashComponent" type="Node" unique_id=480447811]
-script = ExtResource("1_2d6iq")

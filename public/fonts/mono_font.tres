@@ -1,0 +1,6 @@
+[gd_resource type="SystemFont" format=3 uid="uid://bx7p4h1kd2s3c"]
+
+[resource]
+font_names = PackedStringArray("IBM Plex Mono", "SF Mono", "Menlo", "Cascadia Mono", "Consolas", "monospace")
+antialiasing = 1
+subpixel_positioning = 1

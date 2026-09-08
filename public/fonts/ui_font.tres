@@ -1,0 +1,6 @@
+[gd_resource type="SystemFont" format=3 uid="uid://c5k2fq7t8yv1a"]
+
+[resource]
+font_names = PackedStringArray("Inter", "Segoe UI", "Helvetica Neue", "sans-serif")
+antialiasing = 1
+subpixel_positioning = 1

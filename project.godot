@@ -10,9 +10,10 @@ config_version=5
 
 [application]
 
-config/name="template"
+config/name="Godot to Steam"
+run/main_scene="uid://ccwbs581hfimh"
 config/features=PackedStringArray("4.7", "Forward Plus")
-boot_splash/bg_color=Color(0, 0, 0, 1)
+boot_splash/bg_color=Color(0.1176, 0.1137, 0.102, 1)
 boot_splash/show_image=false
 boot_splash/stretch_mode=0
 boot_splash/use_filter=false
@@ -26,13 +27,14 @@ buses/default_bus_layout="uid://ci61fr1dqsshd"
 
 ControllerIcons="*uid://bkoh6nc478voj"
 SignalManager="*uid://djm5fbcusol8f"
-DataManager="*uid://big0hyuv70jxs"
+DataManager="*uid://ygcbtm438ecg"
 _mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
 
 [display]
 
-window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
+window/size/viewport_width=1440
+window/size/viewport_height=900
+window/subwindows/embed_subwindows=false
 
 [editor_plugins]
 
@@ -62,6 +64,10 @@ Loot="if loot is in group"
 Navigation=""
 MenuAnimation=""
 Enemy="Target group to find targets the player can target"
+
+[gui]
+
+theme/custom="uid://b56qgya4xh3s2"
 
 [input]
 

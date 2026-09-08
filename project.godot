@@ -63,10 +63,6 @@ Navigation=""
 MenuAnimation=""
 Enemy="Target group to find targets the player can target"
 
-[gui]
-
-theme/custom="uid://b56qgya4xh3s2"
-
 [input]
 
 ui_accept={

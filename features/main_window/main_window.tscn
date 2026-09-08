@@ -1,0 +1,422 @@
+[gd_scene format=3 uid="uid://ccwbs581hfimh"]
+
+[ext_resource type="Script" uid="uid://bacu3djkkodxc" path="res://features/main_window/main_window.gd" id="1_main"]
+
+[sub_resource type="StyleBoxFlat" id="sb_sidebar"]
+bg_color = Color(0.11, 0.11, 0.125, 1)
+border_width_right = 1
+border_color = Color(0.2, 0.2, 0.22, 1)
+
+[sub_resource type="StyleBoxFlat" id="sb_auth"]
+content_margin_left = 12.0
+content_margin_top = 12.0
+content_margin_right = 12.0
+content_margin_bottom = 12.0
+bg_color = Color(0.09, 0.09, 0.1, 1)
+border_width_top = 1
+border_color = Color(0.2, 0.2, 0.22, 1)
+
+[sub_resource type="StyleBoxFlat" id="sb_console"]
+content_margin_left = 8.0
+content_margin_top = 6.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+bg_color = Color(0.06, 0.06, 0.07, 1)
+border_width_left = 1
+border_width_top = 1
+border_color = Color(0.2, 0.2, 0.22, 1)
+
+[node name="MainWindow" type="Control" unique_id=1889384138]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_main")
+
+[node name="HSplit" type="HSplitContainer" parent="." unique_id=1993325996]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+split_offsets = PackedInt32Array(300)
+split_offset = 300
+
+[node name="Sidebar" type="PanelContainer" parent="HSplit" unique_id=1505641385]
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("sb_sidebar")
+
+[node name="SidebarLayout" type="VBoxContainer" parent="HSplit/Sidebar" unique_id=1407287444]
+layout_mode = 2
+theme_override_constants/separation = 0
+
+[node name="TopMargin" type="MarginContainer" parent="HSplit/Sidebar/SidebarLayout" unique_id=840726562]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="NewGameButton" type="Button" parent="HSplit/Sidebar/SidebarLayout/TopMargin" unique_id=89685177]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "+  New Game"
+alignment = 0
+
+[node name="TopSeparator" type="HSeparator" parent="HSplit/Sidebar/SidebarLayout" unique_id=1906524034]
+layout_mode = 2
+
+[node name="ProjectScroll" type="ScrollContainer" parent="HSplit/Sidebar/SidebarLayout" unique_id=441088809]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="ProjectList" type="VBoxContainer" parent="HSplit/Sidebar/SidebarLayout/ProjectScroll" unique_id=1651803484]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="SteamAuthPanel" type="PanelContainer" parent="HSplit/Sidebar/SidebarLayout" unique_id=708002452]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/panel = SubResource("sb_auth")
+
+[node name="AuthLayout" type="VBoxContainer" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel" unique_id=587908258]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="AuthTitle" type="Label" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=2015842694]
+layout_mode = 2
+text = "Steam Account"
+
+[node name="SteamUsername" type="LineEdit" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=1369307698]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "Username"
+
+[node name="SteamPassword" type="LineEdit" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=1214015195]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "Password"
+secret = true
+
+[node name="RememberPassword" type="CheckBox" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=569657894]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Stored as plain text in user://settings.cfg. Leave off to rely on SteamCMD's cached session instead."
+text = "Remember password"
+
+[node name="SteamSharedSecret" type="LineEdit" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=67715796]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Steam Guard shared_secret (base64, from your authenticator export). Used to generate TOTP codes automatically."
+placeholder_text = "Steam Guard shared secret (TOTP)"
+secret = true
+
+[node name="SteamGuardCode" type="LineEdit" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=1741325952]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Only needed when no shared secret is set."
+placeholder_text = "Manual Steam Guard code"
+max_length = 8
+
+[node name="SteamStatusLabel" type="Label" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=2093646469]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Not signed in"
+autowrap_mode = 3
+
+[node name="SteamLoginButton" type="Button" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=1456008695]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Test login & cache session"
+
+[node name="TotpTimer" type="Timer" parent="HSplit/Sidebar/SidebarLayout/SteamAuthPanel" unique_id=374754755]
+unique_name_in_owner = true
+autostart = true
+
+[node name="RightSplit" type="HSplitContainer" parent="HSplit" unique_id=1363875913]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+split_offsets = PackedInt32Array(-160)
+split_offset = -160
+
+[node name="MainView" type="MarginContainer" parent="HSplit/RightSplit" unique_id=877162818]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="UpperMargin" type="MarginContainer" parent="HSplit/RightSplit/MainView" unique_id=2116703504]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="UpperScroll" type="ScrollContainer" parent="HSplit/RightSplit/MainView/UpperMargin" unique_id=2000593500]
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="UpperLayout" type="VBoxContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll" unique_id=1029641300]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="ToolsGrid" type="GridContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout" unique_id=622095324]
+layout_mode = 2
+theme_override_constants/h_separation = 16
+columns = 2
+
+[node name="SteamCmdLabel" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ToolsGrid" unique_id=487390693]
+layout_mode = 2
+text = "SteamCMD binary"
+
+[node name="SteamCmdBinary" type="LineEdit" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ToolsGrid" unique_id=1364583469]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "/usr/local/bin/steamcmd"
+
+[node name="ToolsSeparator" type="HSeparator" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout" unique_id=2145022664]
+layout_mode = 2
+
+[node name="EmptyState" type="CenterContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout" unique_id=1191567541]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="EmptyLabel" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/EmptyState" unique_id=1222391934]
+layout_mode = 2
+text = "Select a game in the sidebar, or click New Game."
+
+[node name="ProjectSettings" type="VBoxContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout" unique_id=841062367]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="TitleRow" type="HBoxContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings" unique_id=487438561]
+layout_mode = 2
+
+[node name="ProjectTitle" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/TitleRow" unique_id=17910433]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 24
+text = "Project Name"
+
+[node name="RemoveProjectButton" type="Button" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/TitleRow" unique_id=686387658]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Remove from this list (does not touch the project folder)"
+text = "Remove"
+flat = true
+
+[node name="PathRow" type="HBoxContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings" unique_id=170600821]
+layout_mode = 2
+
+[node name="ProjectPath" type="LineEdit" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/PathRow" unique_id=2004478162]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Path to the game's project folder"
+editable = false
+
+[node name="BrowseButton" type="Button" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/PathRow" unique_id=1966853734]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Browse…"
+
+[node name="SettingsGrid" type="GridContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings" unique_id=1400990992]
+layout_mode = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 8
+columns = 2
+
+[node name="GodotLabel" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=885479631]
+layout_mode = 2
+text = "Godot binary"
+
+[node name="GodotRow" type="HBoxContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=132940252]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="GodotBinary" type="LineEdit" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid/GodotRow" unique_id=1886256433]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Empty – click Detect / Check or Browse…"
+
+[node name="BrowseGodotButton" type="Button" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid/GodotRow" unique_id=434642543]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Pick the Godot executable, or the Godot.app bundle on macOS"
+text = "Browse…"
+
+[node name="CheckGodotButton" type="Button" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid/GodotRow" unique_id=1239456726]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Verify the binary's version. With an empty field this searches /Applications and the Steam library for a matching Godot."
+text = "Detect / Check"
+
+[node name="VersionLabelTitle" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=1671206856]
+layout_mode = 2
+text = "Godot version"
+
+[node name="GodotVersionLabel" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=862237175]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Project requires ?"
+
+[node name="AppIdLabel" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=1960208881]
+layout_mode = 2
+text = "Steam App ID"
+
+[node name="AppId" type="LineEdit" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=2115164897]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "2807130"
+
+[node name="BranchLabel" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=1532337255]
+layout_mode = 2
+text = "Set live on branch"
+
+[node name="Branch" type="LineEdit" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=1676749946]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "beta   (leave empty to upload without setting live)"
+
+[node name="DescLabel" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=766820999]
+layout_mode = 2
+text = "Build description"
+
+[node name="BuildDescription" type="LineEdit" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/SettingsGrid" unique_id=1191060345]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "v1.0.3 – fixed save bug"
+
+[node name="DepotsHeader" type="HBoxContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings" unique_id=1064780118]
+layout_mode = 2
+
+[node name="DepotsTitle" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/DepotsHeader" unique_id=610272076]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Depots  (one row per export preset)"
+
+[node name="AddDepotButton" type="Button" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/DepotsHeader" unique_id=1933467557]
+unique_name_in_owner = true
+layout_mode = 2
+text = "+ Add depot"
+
+[node name="DepotColumns" type="HBoxContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings" unique_id=1496015114]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ColPreset" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/DepotColumns" unique_id=406276693]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Export preset"
+
+[node name="ColDepot" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/DepotColumns" unique_id=1856335715]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+text = "Depot ID"
+
+[node name="ColOutput" type="Label" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/DepotColumns" unique_id=225833391]
+custom_minimum_size = Vector2(160, 0)
+layout_mode = 2
+text = "Export file"
+
+[node name="ColRemove" type="Control" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings/DepotColumns" unique_id=1820550703]
+custom_minimum_size = Vector2(32, 0)
+layout_mode = 2
+
+[node name="DepotRows" type="VBoxContainer" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings" unique_id=1081616313]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ActionSpacer" type="Control" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings" unique_id=658308764]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BuildPublishButton" type="Button" parent="HSplit/RightSplit/MainView/UpperMargin/UpperScroll/UpperLayout/ProjectSettings" unique_id=1400043467]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Build & Publish"
+
+[node name="ConsolePanel" type="PanelContainer" parent="HSplit/RightSplit" unique_id=693534143]
+custom_minimum_size = Vector2(280, 0)
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("sb_console")
+
+[node name="ConsoleLayout" type="VBoxContainer" parent="HSplit/RightSplit/ConsolePanel" unique_id=904699813]
+layout_mode = 2
+
+[node name="ConsoleHeader" type="HBoxContainer" parent="HSplit/RightSplit/ConsolePanel/ConsoleLayout" unique_id=11919783]
+layout_mode = 2
+
+[node name="ConsoleTitle" type="Label" parent="HSplit/RightSplit/ConsolePanel/ConsoleLayout/ConsoleHeader" unique_id=1649873786]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Console"
+
+[node name="ClearConsoleButton" type="Button" parent="HSplit/RightSplit/ConsolePanel/ConsoleLayout/ConsoleHeader" unique_id=364899814]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Clear"
+flat = true
+
+[node name="ConsoleScroll" type="ScrollContainer" parent="HSplit/RightSplit/ConsolePanel/ConsoleLayout" unique_id=752806709]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Console" type="RichTextLabel" parent="HSplit/RightSplit/ConsolePanel/ConsoleLayout/ConsoleScroll" unique_id=731944320]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+focus_mode = 2
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+selection_enabled = true
+
+[node name="ProjectDialog" type="FileDialog" parent="." unique_id=645467617]
+unique_name_in_owner = true
+title = "Open a Directory"
+size = Vector2i(800, 560)
+ok_button_text = "Select"
+file_mode = 2
+access = 2
+use_native_dialog = true
+
+[node name="GodotDialog" type="FileDialog" parent="." unique_id=1856332675]
+unique_name_in_owner = true
+title = "Open a File or Directory"
+size = Vector2i(800, 560)
+ok_button_text = "Select"
+file_mode = 3
+access = 2
+use_native_dialog = true

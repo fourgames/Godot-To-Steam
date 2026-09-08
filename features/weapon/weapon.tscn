@@ -1,0 +1,388 @@
+[gd_scene format=3 uid="uid://c6b5pvl4og05j"]
+
+[ext_resource type="Script" uid="uid://ckyrjfd3fq264" path="res://features/weapon/weapon.gd" id="1_17k1q"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_wexpw"]
+radius = 5.0
+
+[sub_resource type="Gradient" id="Gradient_ie8dt"]
+offsets = PackedFloat32Array(0, 0.0363636, 0.509091, 1)
+colors = PackedColorArray(0, 0, 0, 0, 0.136364, 0.136364, 0.136364, 1, 0.754545, 0.754545, 0.754545, 1, 1, 1, 1, 0)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_jm5j8"]
+gradient = SubResource("Gradient_ie8dt")
+
+[sub_resource type="Curve" id="Curve_snlk2"]
+_limits = [0.0, 25.0, 0.0, 1.0]
+_data = [Vector2(0, 25), 0.0, 0.0, 0, 0]
+point_count = 1
+
+[sub_resource type="CurveTexture" id="CurveTexture_7hik5"]
+curve = SubResource("Curve_snlk2")
+
+[sub_resource type="Curve" id="Curve_ikspl"]
+_limits = [0.0, 0.4, 0.0, 1.0]
+_data = [Vector2(0, 0.4), 0.0, 0.0, 0, 0, Vector2(1, 0.4), 0.0, 0.0, 0, 0]
+point_count = 2
+
+[sub_resource type="CurveTexture" id="CurveTexture_qtqh7"]
+curve = SubResource("Curve_ikspl")
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_rvkta"]
+angle_min = -720.0
+angle_max = 720.0
+direction = Vector3(0, 0, 0)
+gravity = Vector3(0, 0, 0)
+scale_curve = SubResource("CurveTexture_qtqh7")
+color = Color(1, 0.141176, 0, 1)
+color_ramp = SubResource("GradientTexture1D_jm5j8")
+emission_curve = SubResource("CurveTexture_7hik5")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2wuci"]
+transparency = 1
+blend_mode = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+albedo_color = Color(1, 1, 0, 1)
+billboard_mode = 3
+billboard_keep_scale = true
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+proximity_fade_enabled = true
+proximity_fade_distance = 0.1
+
+[sub_resource type="QuadMesh" id="QuadMesh_sseaq"]
+material = SubResource("StandardMaterial3D_2wuci")
+
+[sub_resource type="Gradient" id="Gradient_m741f"]
+offsets = PackedFloat32Array(0, 0.140271, 0.748869, 1)
+colors = PackedColorArray(0, 0, 0, 0, 0.140271, 0.140271, 0.140271, 1, 0.785068, 0.785068, 0.785068, 1, 1, 1, 1, 0)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_iruf7"]
+gradient = SubResource("Gradient_m741f")
+
+[sub_resource type="Curve" id="Curve_1obee"]
+_limits = [0.0, 0.2, 0.0, 1.0]
+_data = [Vector2(0, 0.0996019), 0.0, 0.16477, 0, 0, Vector2(1, 0.2), 0.0, 0.0, 0, 0]
+point_count = 2
+
+[sub_resource type="CurveTexture" id="CurveTexture_j5n4i"]
+curve = SubResource("Curve_1obee")
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_pu4h3"]
+angle_min = -720.0
+angle_max = 720.0
+gravity = Vector3(0, 0.2, 0)
+scale_curve = SubResource("CurveTexture_j5n4i")
+color = Color(1, 1, 1, 0.247059)
+color_ramp = SubResource("GradientTexture1D_iruf7")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_634y6"]
+transparency = 1
+vertex_color_use_as_albedo = true
+billboard_mode = 3
+billboard_keep_scale = true
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+particles_anim_loop = false
+proximity_fade_enabled = true
+proximity_fade_distance = 0.1
+
+[sub_resource type="QuadMesh" id="QuadMesh_qtp7o"]
+material = SubResource("StandardMaterial3D_634y6")
+
+[sub_resource type="AudioStreamRandomizer" id="AudioStreamRandomizer_hekod"]
+random_pitch = 1.1
+streams_count = 1
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ae5e1"]
+albedo_color = Color(0, 0, 0, 1)
+
+[sub_resource type="TorusMesh" id="TorusMesh_j0ebl"]
+material = SubResource("StandardMaterial3D_ae5e1")
+inner_radius = 0.125
+outer_radius = 0.25
+
+[sub_resource type="Animation" id="Animation_kigro"]
+resource_name = "RESET"
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("AnchorMarker3D:position")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0.68, -0.005)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("AnchorMarker3D/Marker3D/RifleFire:playing")
+tracks/1/interp = 2
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [false]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("AnchorMarker3D:rotation")
+tracks/2/interp = 2
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 0)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("AnchorMarker3D/Marker3D/GPUParticles3D:emitting")
+tracks/3/interp = 2
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [false]
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("AnchorMarker3D/Marker3D/GPUParticles3D2:emitting")
+tracks/4/interp = 2
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [false]
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("AnchorMarker3D/Marker3D/SpotLight3D:light_energy")
+tracks/5/interp = 2
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.0]
+}
+
+[sub_resource type="Animation" id="Animation_ie8dt"]
+resource_name = "Rifle_Fire_Anim"
+length = 0.5
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("AnchorMarker3D:position")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.0569789, 0.3, 0.5),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0.68, -0.005), Vector3(0, 0.63, 0.08), Vector3(0, 0.649, -0.017), Vector3(0, 0.68, -0.005)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("AnchorMarker3D/Marker3D/RifleFire:playing")
+tracks/1/interp = 2
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [true]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("AnchorMarker3D:rotation")
+tracks/2/interp = 2
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.0569789, 0.3, 0.5),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0.08726646, 0, 0), Vector3(-0.05235988, 0, 0), Vector3(0, 0, 0)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("AnchorMarker3D/Marker3D/GPUParticles3D:emitting")
+tracks/3/interp = 2
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [true]
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("AnchorMarker3D/Marker3D/GPUParticles3D2:emitting")
+tracks/4/interp = 2
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0.1, 0.5),
+"transitions": PackedFloat32Array(1, 1),
+"update": 1,
+"values": [true, false]
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("AnchorMarker3D/Marker3D/SpotLight3D:light_energy")
+tracks/5/interp = 2
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0, 0.1),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [1.0, 0.0]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_snlk2"]
+_data = {
+&"RESET": SubResource("Animation_kigro"),
+&"Rifle_Fire_Anim": SubResource("Animation_ie8dt")
+}
+
+[sub_resource type="Animation" id="Animation_bbyj0"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("AnchorMarker3D:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("AnchorMarker3D:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 0)]
+}
+
+[sub_resource type="Animation" id="Animation_snlk2"]
+resource_name = "idle_animation"
+length = 9.0
+loop_mode = 1
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("AnchorMarker3D:position")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 1.5, 3, 4.5, 6, 7.5),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 1, 0), Vector3(0, 1.005, 0), Vector3(0, 1, 0), Vector3(0, 0.995, 0), Vector3(0, 1, 0), Vector3(0, 1.005, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("AnchorMarker3D:rotation")
+tracks/1/interp = 2
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 1.5, 3, 4.5, 6, 7.5),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0, 0.00174533, 0), Vector3(0, 0, 0), Vector3(0, -0.00174533, 0), Vector3(0, 0, 0), Vector3(0, 0.00174533, 0)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_ikspl"]
+_data = {
+&"RESET": SubResource("Animation_bbyj0"),
+&"idle_animation": SubResource("Animation_snlk2")
+}
+
+[node name="WeaponComponent" type="Area3D" unique_id=1926944636]
+collision_layer = 0
+collision_mask = 0
+script = ExtResource("1_17k1q")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1765256303]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+shape = SubResource("SphereShape3D_wexpw")
+debug_color = Color(1, 1, 0, 0.41960785)
+
+[node name="AnchorMarker3D" type="Marker3D" parent="." unique_id=68567383]
+
+[node name="Marker3D" type="Marker3D" parent="AnchorMarker3D" unique_id=1369737806]
+unique_name_in_owner = true
+transform = Transform3D(-4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0, 1, 0, 0.025631666, -1.9895579)
+
+[node name="GPUParticles3D" type="GPUParticles3D" parent="AnchorMarker3D/Marker3D" unique_id=1060908765]
+emitting = false
+amount = 1
+lifetime = 0.1
+one_shot = true
+local_coords = true
+process_material = SubResource("ParticleProcessMaterial_rvkta")
+draw_pass_1 = SubResource("QuadMesh_sseaq")
+
+[node name="GPUParticles3D2" type="GPUParticles3D" parent="AnchorMarker3D/Marker3D" unique_id=271473434]
+emitting = false
+lifetime = 0.3
+process_material = SubResource("ParticleProcessMaterial_pu4h3")
+draw_pass_1 = SubResource("QuadMesh_qtp7o")
+
+[node name="SpotLight3D" type="SpotLight3D" parent="AnchorMarker3D/Marker3D" unique_id=390288920]
+light_color = Color(1, 0.572549, 0, 1)
+light_energy = 0.0
+spot_angle = 60.0
+
+[node name="RifleFire" type="AudioStreamPlayer3D" parent="AnchorMarker3D/Marker3D" unique_id=1101453418]
+stream = SubResource("AudioStreamRandomizer_hekod")
+volume_db = -7.5
+pitch_scale = 3.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="AnchorMarker3D/Marker3D" unique_id=362818635]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0)
+mesh = SubResource("TorusMesh_j0ebl")
+
+[node name="RotationAnchor" type="Marker3D" parent="AnchorMarker3D" unique_id=7293632]
+unique_name_in_owner = true
+transform = Transform3D(2, 0, 0, 0, 2, 0, 0, 0, 2, 0, -0.0012791157, -1.4695519)
+
+[node name="FireTimer" type="Timer" parent="." unique_id=195142287]
+unique_name_in_owner = true
+autostart = true
+
+[node name="ActionsAnim" type="AnimationPlayer" parent="." unique_id=264435094]
+libraries/ = SubResource("AnimationLibrary_snlk2")
+
+[node name="IdleAnimationPlayer" type="AnimationPlayer" parent="." unique_id=2027567640]
+libraries/ = SubResource("AnimationLibrary_ikspl")
+autoplay = &"idle_animation"
+
+[connection signal="timeout" from="FireTimer" to="." method="_on_fire_timer_timeout"]

@@ -1,0 +1,75 @@
+name: Deploy to Steam (Windows & macOS)
+
+on:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: ${{ vars.GODOT_VERSION }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      # If it allways fails to build then build manualy and add git lfs to store builds on the repo and skip this step
+      - name: Godot Export
+        id: export
+        uses: firebelley/godot-export@v7.0.0
+        with:
+          relative_project_path: ./
+          relative_export_path: out
+          archive_output: false 
+          godot_executable_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_linux.x86_64.zip
+          godot_export_templates_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_export_templates.tpz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Think broken but have working in reforge-front private
+      - name: Move and Prepare Builds
+        run: |
+          mkdir -p dist/macOS
+          mkdir -p "dist/Windows Desktop"
+
+          # 1. Process macOS (Copying from the 'out' folder now)
+          cp -r out/macOS/* ./dist/macOS/
+          cd dist/macOS
+          if [ -f "game.zip" ]; then
+            unzip -o game.zip
+            rm game.zip
+            mv template.app game.app || true
+            mv game.app/Contents/MacOS/template game.app/Contents/MacOS/game || true
+            mv game.app/Contents/Resources/template.pck game.app/Contents/Resources/game.pck || true
+          fi
+          chmod +x game.app/Contents/MacOS/game
+          touch game.app
+          xattr -cr game.app || true
+          cd ../..
+
+          # 2. Process Windows (Copying from the 'out' folder now)
+          cp -r out/"Windows Desktop"/* "./dist/Windows Desktop/"
+          
+      - name: Generate Steam TOTP
+        id: steam_totp
+        uses: CyberAndrii/steam-totp@v1
+        with:
+          shared_secret: ${{ secrets.STEAM_TOTP }}
+
+      - name: Upload to Steam
+        uses: game-ci/steam-deploy@v3
+        with:
+          username: ${{ vars.STEAM_USERNAME }}
+          password: ${{ secrets.STEAM_PASSWORD }}
+          totp: ${{ steps.steam_totp.outputs.code }}
+          appId: ${{ vars.STEAM_APP_ID }}
+          rootPath: dist
+          # You are not allowed to automate it on default breanch so use beta and then manualy set live in steamworks
+          releaseBranch: "beta"
+          buildDescription: "Build ${{ github.run_number }}"
+          # Needs to be sequential order (Depot 1 (2807131) = macOS, Depot 2 (2807132) = Windows Desktop)
+          depot1Path: "macOS"
+          depot2Path: "Windows Desktop"

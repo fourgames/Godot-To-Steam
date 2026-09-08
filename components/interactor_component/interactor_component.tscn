@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://dvnkbmlwfveol"]
+
+[ext_resource type="Script" uid="uid://hl8i36hp00ci" path="res://components/interactor_component/interactor_component.gd" id="1_sbq2a"]
+
+[sub_resource type="SeparationRayShape3D" id="SeparationRayShape3D_sbq2a"]
+length = 2.0
+
+[node name="InteractorComponent" type="Area3D" unique_id=1962311501]
+script = ExtResource("1_sbq2a")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=510175220]
+shape = SubResource("SeparationRayShape3D_sbq2a")
+debug_color = Color(0, 0.6, 0, 1)
+
+[connection signal="area_entered" from="." to="." method="_on_area_entered"]
+[connection signal="area_exited" from="." to="." method="_on_area_exited"]

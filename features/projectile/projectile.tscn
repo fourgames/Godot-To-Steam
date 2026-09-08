@@ -1,0 +1,79 @@
+[gd_scene format=3 uid="uid://csayarwi2f22f"]
+
+[ext_resource type="Script" uid="uid://hss5ums5qwtg" path="res://features/projectile/projectile.gd" id="1_nk66k"]
+[ext_resource type="PackedScene" uid="uid://juuvvol6wwhe" path="res://components/hitbox_component/hitbox_component.tscn" id="2_jffgv"]
+[ext_resource type="Shader" uid="uid://btk385825igxu" path="res://addons/GPUTrail-main/shaders/trail.gdshader" id="3_dbt42"]
+[ext_resource type="Shader" uid="uid://0uam2aluy3pd" path="res://addons/GPUTrail-main/shaders/trail_draw_pass.gdshader" id="4_qpksc"]
+[ext_resource type="Texture2D" uid="uid://crk6pkb7e5rwc" path="res://addons/GPUTrail-main/defaults/texture.tres" id="5_0ten0"]
+[ext_resource type="Script" uid="uid://d2jkj5l71fkqf" path="res://addons/GPUTrail-main/GPUTrail3D.gd" id="6_ekdvh"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_m4vb7"]
+albedo_color = Color(0.23753911, 0.23753914, 0.23753902, 1)
+emission_enabled = true
+emission = Color(0.056291588, 0.05629161, 0.05629155, 1)
+emission_energy_multiplier = 5.0
+
+[sub_resource type="SphereMesh" id="SphereMesh_b7duk"]
+material = SubResource("StandardMaterial3D_m4vb7")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_v21wq"]
+shader = ExtResource("3_dbt42")
+
+[sub_resource type="Curve" id="Curve_a5awa"]
+_limits = [0.0, 0.1, 0.0, 1.0]
+_data = [Vector2(0, 0.1), 0.0, 0.0, 0, 0, Vector2(1, 0), -0.135418, 0.0, 0, 0]
+point_count = 2
+
+[sub_resource type="CurveTexture" id="CurveTexture_j40go"]
+curve = SubResource("Curve_a5awa")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_8wix4"]
+resource_local_to_scene = true
+render_priority = 100
+shader = ExtResource("4_qpksc")
+shader_parameter/tex = ExtResource("5_0ten0")
+shader_parameter/curve = SubResource("CurveTexture_j40go")
+shader_parameter/emmission_transform = Projection(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+shader_parameter/flags = 46
+
+[sub_resource type="QuadMesh" id="QuadMesh_iv4kc"]
+material = SubResource("ShaderMaterial_8wix4")
+
+[node name="ProjectilePlayerBullet" type="Node3D" unique_id=1577393002]
+top_level = true
+script = ExtResource("1_nk66k")
+
+[node name="HitboxComponent" parent="." unique_id=817385232 instance=ExtResource("2_jffgv")]
+collision_mask = 4
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=311370657]
+transform = Transform3D(0.25, 0, 0, 0, 0.25, 0, 0, 0, 0.25, 0, 0, 0)
+mesh = SubResource("SphereMesh_b7duk")
+
+[node name="Timer" type="Timer" parent="." unique_id=1638821617]
+unique_name_in_owner = true
+wait_time = 20.0
+autostart = true
+
+[node name="RayCast3D" type="RayCast3D" parent="." unique_id=1326911859]
+unique_name_in_owner = true
+target_position = Vector3(0, 0, -0.1)
+debug_shape_thickness = 5
+
+[node name="GPUTrail3D" type="GPUParticles3D" parent="." unique_id=1476239730]
+process_mode = 3
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, 1, 0, -1, -4.37114e-08, 0, 0, 0)
+amount = 20
+lifetime = 20.0
+explosiveness = 1.0
+fixed_fps = 60
+process_material = SubResource("ShaderMaterial_v21wq")
+draw_pass_1 = SubResource("QuadMesh_iv4kc")
+script = ExtResource("6_ekdvh")
+length = 20
+curve = SubResource("CurveTexture_j40go")
+use_red_as_alpha = true
+billboard = true
+_defaults_have_been_set = true
+
+[connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]

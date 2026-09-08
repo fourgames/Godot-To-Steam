@@ -1,0 +1,59 @@
+name: Deploy to Itch (Web)
+
+on:
+  workflow_dispatch:
+  #push:
+    #branches: ["main"]
+
+env:
+  GODOT_VERSION: ${{ vars.GODOT_VERSION }}
+  ITCH_USER: ${{ vars.ITCH_USER }}
+  ITCH_GAME: ${{ vars.ITCH_GAME }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Cache Godot
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.local/share/godot/
+            /usr/local/bin/godot
+          key: ${{ runner.os }}-godot-${{ env.GODOT_VERSION }}
+
+      - name: Godot Export
+        id: export
+        uses: firebelley/godot-export@v7.0.0
+        with:
+          relative_project_path: ./
+          godot_executable_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_linux.x86_64.zip
+          godot_export_templates_download_url: https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}-stable/Godot_v${{ env.GODOT_VERSION }}-stable_export_templates.tpz
+          archive_output: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Butler & Publish to Itch
+        run: |
+          # 1. Download Butler
+          curl -L -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -o butler.zip
+          chmod +x butler
+          
+          # 2. Push to Itch
+          ./butler push ${{ steps.export.outputs.archive_directory }}/Web.zip ${{ env.ITCH_USER }}/${{ env.ITCH_GAME }}:web
+        env:
+          BUTLER_API_KEY: ${{ secrets.ITCHIO_TOKEN }}

@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://ce5jku3brgxwj"]
+
+[ext_resource type="Texture2D" uid="uid://rpel43srlegv" path="res://public/textures/kenney/PNG/purple_texture_07.png" id="1_crni6"]
+
+[resource]
+resource_local_to_scene = true
+albedo_texture = ExtResource("1_crni6")
+emission_enabled = true
+uv1_triplanar = true
+uv1_world_triplanar = true

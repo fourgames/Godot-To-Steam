@@ -1,0 +1,76 @@
+[gd_scene format=3 uid="uid://bytxkqqg13lxf"]
+
+[ext_resource type="Script" uid="uid://f3af62xo8if0" path="res://components/menues/boot_splash_menu/boot_splash_menu.gd" id="1_n2hxm"]
+
+[sub_resource type="Animation" id="Animation_s2ta7"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Label:modulate")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+
+[sub_resource type="Animation" id="Animation_ayt76"]
+resource_name = "boot_splash_animation"
+length = 2.0
+step = 0.5
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Label:modulate")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.5, 1),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [Color(1, 1, 1, 0), Color(1, 1, 1, 0), Color(1, 1, 1, 1)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_7a8ye"]
+_data = {
+&"RESET": SubResource("Animation_s2ta7"),
+&"boot_splash_animation": SubResource("Animation_ayt76")
+}
+
+[node name="BootSplash" type="CanvasLayer" unique_id=454388711]
+process_mode = 3
+script = ExtResource("1_n2hxm")
+
+[node name="BackgroundColorRect" type="ColorRect" parent="." unique_id=379939382]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 1)
+
+[node name="Label" type="Label" parent="." unique_id=1298430772]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -72.5
+offset_top = -17.5
+offset_right = 72.5
+offset_bottom = 17.5
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 25
+text = "Four Games"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=1390909817]
+unique_name_in_owner = true
+libraries/ = SubResource("AnimationLibrary_7a8ye")
+autoplay = &"boot_splash_animation"

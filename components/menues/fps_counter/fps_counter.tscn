@@ -1,0 +1,19 @@
+[gd_scene format=3 uid="uid://crsafe53nr0gk"]
+
+[ext_resource type="Script" uid="uid://k63kbjnxhs7e" path="res://components/menues/fps_counter/fps_counter.gd" id="1_kfi8j"]
+
+[node name="FpsCounter" type="CanvasLayer" unique_id=550602975]
+process_mode = 3
+script = ExtResource("1_kfi8j")
+
+[node name="Label" type="Label" parent="." unique_id=1490888290]
+unique_name_in_owner = true
+z_index = 100
+y_sort_enabled = true
+offset_right = 79.0
+offset_bottom = 28.0
+size_flags_horizontal = 0
+theme_override_font_sizes/font_size = 20
+text = "FPS: 999"
+horizontal_alignment = 1
+vertical_alignment = 1

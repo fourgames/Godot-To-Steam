@@ -1,0 +1,20 @@
+[gd_scene format=3 uid="uid://juuvvol6wwhe"]
+
+[ext_resource type="Script" uid="uid://ccdxgviieq1ta" path="res://components/hitbox_component/hitbox_component.gd" id="1_3t5pk"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_3t5pk"]
+
+[node name="HitboxComponent" type="Area3D" unique_id=817385232]
+collision_layer = 0
+collision_mask = 0
+script = ExtResource("1_3t5pk")
+damage = -40
+
+[node name="TickTimer" type="Timer" parent="." unique_id=1270395862]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1158623999]
+shape = SubResource("SphereShape3D_3t5pk")
+debug_color = Color(1, 0.14509805, 0, 1)
+
+[connection signal="area_entered" from="." to="." method="_on_area_entered"]
+[connection signal="timeout" from="TickTimer" to="." method="_on_tick_timer_timeout"]

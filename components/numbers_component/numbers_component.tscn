@@ -1,0 +1,129 @@
+[gd_scene format=3 uid="uid://bgaxsmyoyxbpa"]
+
+[ext_resource type="Script" uid="uid://388hiheoy3if" path="res://components/numbers_component/numbers_component.gd" id="1_r07ws"]
+
+[sub_resource type="Animation" id="Animation_xp1fi"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Anchor/Sprite3D/SubViewport/RichTextLabel:modulate")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Anchor:position")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 0)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Anchor:scale")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(1, 1, 1)]
+}
+
+[sub_resource type="Animation" id="Animation_xn481"]
+resource_name = "rise_and_fade"
+length = 0.3
+step = 0.05
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Anchor/Sprite3D/SubViewport/RichTextLabel:modulate")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Anchor:position")
+tracks/1/interp = 2
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.3),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0, 0.5, 0)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Anchor:scale")
+tracks/2/interp = 2
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.05, 0.2, 0.3),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(1, 1, 1), Vector3(1, 1, 1), Vector3(0, 0, 0)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_i377k"]
+_data = {
+&"RESET": SubResource("Animation_xp1fi"),
+&"rise_and_fade": SubResource("Animation_xn481")
+}
+
+[sub_resource type="ViewportTexture" id="ViewportTexture_wte3l"]
+viewport_path = NodePath("Anchor/Sprite3D/SubViewport")
+
+[node name="NumbersComponent" type="Node3D" unique_id=333203928]
+script = ExtResource("1_r07ws")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=1995431235]
+unique_name_in_owner = true
+libraries/ = SubResource("AnimationLibrary_i377k")
+autoplay = &"rise_and_fade"
+
+[node name="Anchor" type="Node3D" parent="." unique_id=1558062560]
+
+[node name="Sprite3D" type="Sprite3D" parent="Anchor" unique_id=1429513150]
+unique_name_in_owner = true
+transform = Transform3D(0.349, 0, 0, 0, 0.349, 0, 0, 0, 0.349, 0, 0, 0)
+billboard = 1
+no_depth_test = true
+render_priority = 2
+texture = SubResource("ViewportTexture_wte3l")
+
+[node name="SubViewport" type="SubViewport" parent="Anchor/Sprite3D" unique_id=1691849173]
+transparent_bg = true
+
+[node name="RichTextLabel" type="RichTextLabel" parent="Anchor/Sprite3D/SubViewport" unique_id=1275719154]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/outline_size = 50
+theme_override_font_sizes/normal_font_size = 200
+bbcode_enabled = true
+text = "123"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[connection signal="animation_finished" from="AnimationPlayer" to="." method="_on_animation_player_animation_finished"]

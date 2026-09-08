@@ -1,0 +1,93 @@
+[gd_scene format=3 uid="uid://yuweybb57rjy"]
+
+[ext_resource type="Script" path="res://src/app/globals/demo_manager/demo_manager.gd" id="1_vahwi"]
+
+[sub_resource type="Animation" id="Animation_g4dmw"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Control:modulate")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 0)]
+}
+
+[sub_resource type="Animation" id="Animation_ag2d1"]
+resource_name = "new_animation"
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Control:modulate")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 1),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Color(1, 1, 1, 0), Color(1, 1, 1, 1)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_6npjj"]
+_data = {
+&"RESET": SubResource("Animation_g4dmw"),
+&"new_animation": SubResource("Animation_ag2d1")
+}
+
+[node name="DemoManager" type="CanvasLayer" unique_id=933741628]
+script = ExtResource("1_vahwi")
+
+[node name="Control" type="Control" parent="." unique_id=1250122977]
+modulate = Color(1, 1, 1, 0)
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="CenterContainer" type="CenterContainer" parent="Control" unique_id=463879389]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="PanelContainer" type="PanelContainer" parent="Control/CenterContainer" unique_id=1759565830]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Control/CenterContainer/PanelContainer" unique_id=1292240375]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Control/CenterContainer/PanelContainer/VBoxContainer" unique_id=1259800372]
+layout_mode = 2
+text = "This title’s demo period has ended.
+
+Progress is kept for the full game unless restarting to play again."
+horizontal_alignment = 1
+
+[node name="WishlistButton" type="Button" parent="Control/CenterContainer/PanelContainer/VBoxContainer" unique_id=229863700]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Wishlist"
+
+[node name="RestartButton" type="Button" parent="Control/CenterContainer/PanelContainer/VBoxContainer" unique_id=1356191857]
+layout_mode = 2
+text = "Restart"
+
+[node name="QuitButton" type="Button" parent="Control/CenterContainer/PanelContainer/VBoxContainer" unique_id=1043853003]
+layout_mode = 2
+text = "Quit"
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=222090852]
+unique_name_in_owner = true
+libraries/ = SubResource("AnimationLibrary_6npjj")
+
+[connection signal="pressed" from="Control/CenterContainer/PanelContainer/VBoxContainer/WishlistButton" to="." method="_on_wishlist_button_pressed"]
+[connection signal="pressed" from="Control/CenterContainer/PanelContainer/VBoxContainer/RestartButton" to="." method="_on_restart_button_pressed"]
+[connection signal="pressed" from="Control/CenterContainer/PanelContainer/VBoxContainer/QuitButton" to="." method="_on_quit_button_pressed"]

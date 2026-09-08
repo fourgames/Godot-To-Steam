@@ -1,0 +1,58 @@
+[gd_scene format=3 uid="uid://brh1hxjs4kurc"]
+
+[ext_resource type="Script" uid="uid://dthjxxocetqy6" path="res://components/health_bar_component/health_bar_component.gd" id="1_dkyac"]
+[ext_resource type="StyleBox" uid="uid://kuw0m6acholl" path="res://components/health_bar_component/resources/health_progress_bar_background.tres" id="2_75idb"]
+[ext_resource type="StyleBox" uid="uid://bujw1vv42y82y" path="res://components/health_bar_component/resources/health_progress_bar_fill_v1.tres" id="3_wifqr"]
+[ext_resource type="StyleBox" uid="uid://xafwcgqcyvwy" path="res://components/health_bar_component/resources/under_progress_bar_background.tres" id="4_sxf3n"]
+[ext_resource type="StyleBox" uid="uid://bhbsodq0fvcch" path="res://components/health_bar_component/resources/under_progress_bar_fill_v1.tres" id="5_liui7"]
+
+[sub_resource type="ViewportTexture" id="ViewportTexture_0vcal"]
+viewport_path = NodePath("SubViewport")
+
+[node name="HealthBarComponent" type="Sprite3D" unique_id=864028086]
+process_mode = 3
+billboard = 1
+no_depth_test = true
+texture = SubResource("ViewportTexture_0vcal")
+script = ExtResource("1_dkyac")
+
+[node name="SubViewport" type="SubViewport" parent="." unique_id=149815473]
+transparent_bg = true
+size = Vector2i(4000, 5796)
+
+[node name="CenterContainer" type="CenterContainer" parent="SubViewport" unique_id=829053310]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HealthProgressBar" type="ProgressBar" parent="SubViewport/CenterContainer" unique_id=2012299700]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(500, 150)
+layout_mode = 2
+theme_override_styles/background = ExtResource("2_75idb")
+theme_override_styles/fill = ExtResource("3_wifqr")
+value = 50.0
+show_percentage = false
+
+[node name="UnderProgressBar" type="ProgressBar" parent="SubViewport/CenterContainer/HealthProgressBar" unique_id=1811924284]
+unique_name_in_owner = true
+z_index = -1
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/background = ExtResource("4_sxf3n")
+theme_override_styles/fill = ExtResource("5_liui7")
+value = 60.0
+show_percentage = false
+
+[node name="WaitTimer" type="Timer" parent="SubViewport/CenterContainer/HealthProgressBar" unique_id=2087863482]
+unique_name_in_owner = true
+wait_time = 0.2
+one_shot = true
+
+[connection signal="timeout" from="SubViewport/CenterContainer/HealthProgressBar/WaitTimer" to="." method="_on_wait_timer_timeout"]

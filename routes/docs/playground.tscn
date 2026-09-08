@@ -1,0 +1,463 @@
+[gd_scene format=3 uid="uid://n4y2s8gdj1cu"]
+
+[ext_resource type="Script" uid="uid://b3ktxjxljjwev" path="res://routes/docs/playground.gd" id="1_a854a"]
+[ext_resource type="PackedScene" uid="uid://c0w0o0laooyhw" path="res://features/player/top_down_player/player.tscn" id="1_lpwyr"]
+[ext_resource type="PackedScene" uid="uid://c6b5pvl4og05j" path="res://features/weapon/weapon.tscn" id="3_5ll4s"]
+[ext_resource type="PackedScene" uid="uid://yhaifffbcefc" path="res://features/enemy/base_enemy/enemy.tscn" id="4_5ll4s"]
+[ext_resource type="Material" uid="uid://ce5jku3brgxwj" path="res://public/textures/kenney/resources/purple_texture_07.tres" id="4_5v58r"]
+[ext_resource type="PackedScene" uid="uid://brh1hxjs4kurc" path="res://components/health_bar_component/health_bar_component.tscn" id="6_pn1np"]
+[ext_resource type="PackedScene" uid="uid://8veaxrlv0egr" path="res://components/hurtbox_component/hurtbox_component.tscn" id="7_60eds"]
+[ext_resource type="Material" uid="uid://cj3wvsy4wenwb" path="res://public/textures/kenney/resources/green_texture_07.tres" id="7_plcdq"]
+[ext_resource type="Material" uid="uid://dqg6vocwwbc0c" path="res://public/textures/kenney/resources/red_texture_07.tres" id="8_30h57"]
+[ext_resource type="PackedScene" uid="uid://juuvvol6wwhe" path="res://components/hitbox_component/hitbox_component.tscn" id="8_dd4s8"]
+[ext_resource type="PackedScene" uid="uid://daim3jnqfh1ep" path="res://public/models/poly_pizza_pixel_glasses_ipoly3d_cc0.fbx" id="9_cde1g"]
+[ext_resource type="PackedScene" uid="uid://d07cmkdpirmw6" path="res://components/health_component/health_component.tscn" id="9_jc3om"]
+[ext_resource type="PackedScene" uid="uid://bmkr84x33203k" path="res://components/hit_flash_component/hit_flash_component.tscn" id="10_3184x"]
+[ext_resource type="PackedScene" uid="uid://bgaxsmyoyxbpa" path="res://components/numbers_component/numbers_component.tscn" id="11_5h31n"]
+[ext_resource type="PackedScene" uid="uid://cfkbyu0hhuoxu" path="res://components/radar_component/radar_component.tscn" id="12_fxgnr"]
+[ext_resource type="PackedScene" uid="uid://db7fq3ohpetjb" path="res://components/spawner_component/enemy_spawner.tscn" id="13_60eds"]
+[ext_resource type="Script" uid="uid://tl548twdjy8o" path="res://components/spawner_component/enemy_spawn_data.gd" id="14_dd4s8"]
+[ext_resource type="Material" uid="uid://nyeksgijrirj" path="res://public/textures/kenney/resources/orange_texture_07.tres" id="15_30h57"]
+[ext_resource type="PackedScene" uid="uid://cl8s6shmpvcbi" path="res://components/interactable_component/interactable_component.tscn" id="15_dd4s8"]
+[ext_resource type="Material" uid="uid://h0vjimnu1mfy" path="res://public/textures/kenney/resources/dark_texture_07.tres" id="15_ostbp"]
+[ext_resource type="PackedScene" uid="uid://dqj8k6s7msj60" path="res://features/player/fps_player/player.tscn" id="19_x7phl"]
+[ext_resource type="Texture2D" uid="uid://bnigb67b8f7wq" path="res://components/controller_icons/resources/interact.tres" id="20_2pjm7"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_gpafp"]
+sky_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+ground_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+
+[sub_resource type="Sky" id="Sky_u8dbp"]
+sky_material = SubResource("ProceduralSkyMaterial_gpafp")
+
+[sub_resource type="Environment" id="Environment_vtdpf"]
+background_mode = 2
+sky = SubResource("Sky_u8dbp")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="Resource" id="Resource_2pjm7"]
+script = ExtResource("14_dd4s8")
+time_start = 5
+time_end = 10
+enemy_scene = ExtResource("4_5ll4s")
+total_enemies = 5
+metadata/_custom_type_script = "uid://tl548twdjy8o"
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_x7phl"]
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_ostbp"]
+material = ExtResource("4_5v58r")
+
+[sub_resource type="ViewportTexture" id="ViewportTexture_du3yr"]
+viewport_path = NodePath("SubViewport")
+
+[sub_resource type="Animation" id="Animation_8jo76"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Example/HurtboxComponent/HitboxComponent:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 3)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Example/HurtboxComponent/HitboxComponent:damage")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [-10]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Example/HurtboxComponent/HitboxComponent/MeshInstance3D:mesh:material")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [ExtResource("8_30h57")]
+}
+
+[sub_resource type="Animation" id="Animation_qyqut"]
+resource_name = "new_animation"
+length = 6.0
+loop_mode = 1
+step = 1.0
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Example/HurtboxComponent/HitboxComponent:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 1, 2, 3, 4, 5, 6),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 3), Vector3(0, 0, -3), Vector3(0, 0, 3), Vector3(0, 0, -3), Vector3(0, 0, 3), Vector3(0, 0, -3), Vector3(0, 0, 3)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Example/HurtboxComponent/HitboxComponent:damage")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 3),
+"transitions": PackedFloat32Array(1, 1),
+"update": 1,
+"values": [-10, 10]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Example/HurtboxComponent/HitboxComponent/MeshInstance3D:mesh:material")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 3),
+"transitions": PackedFloat32Array(1, 1),
+"update": 1,
+"values": [ExtResource("8_30h57"), ExtResource("7_plcdq")]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_2d8br"]
+_data = {
+&"RESET": SubResource("Animation_8jo76"),
+&"new_animation": SubResource("Animation_qyqut")
+}
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_30h57"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_30h57"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_plcdq"]
+material = ExtResource("8_30h57")
+
+[sub_resource type="SphereMesh" id="SphereMesh_5v58r"]
+material = ExtResource("15_30h57")
+
+[sub_resource type="Animation" id="Animation_d0grt"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Marker3D:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Marker3D:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 0)]
+}
+
+[sub_resource type="Animation" id="Animation_k8ab7"]
+resource_name = "new_animation"
+length = 2.0
+loop_mode = 1
+step = 1.0
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Marker3D:position")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 1),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0, 0.2, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Marker3D:rotation")
+tracks/1/interp = 2
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 2),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0, 6.2831855, 0)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_11d6r"]
+_data = {
+&"RESET": SubResource("Animation_d0grt"),
+&"new_animation": SubResource("Animation_k8ab7")
+}
+
+[sub_resource type="NavigationMesh" id="NavigationMesh_5ll4s"]
+vertices = PackedVector3Array(-499.25, 0.99, -5.5, -11, 0.99, -5.25, -11, 0.99, -6.75, -9.25, 0.99, -7, -9.25, 0.99, -499.25, -499.25, 0.99, -499.25, -7.75, 0.99, -6.75, 499.25, 0.99, -4.75, 499.25, 0.99, -499.25, -7.75, 0.99, -4.75, -9.75, 1.99, -5.75, -9.75, 1.99, -5, -9, 1.99, -5, -9, 1.99, -5.75, -499.25, 0.99, 10.75, -11, 0.99, 10.5, -7.75, 0.99, 9.75, 499.25, 0.99, 9.75, -9.75, 2.99, -3.75, -9.75, 2.99, -3, -9, 2.99, -3, -9, 2.99, -3.75, -9.75, 3.99, -1.75, -9.75, 3.99, -1, -9, 3.99, -1, -9, 3.99, -1.75, -9.75, 4.99, 0.25, -9.75, 4.99, 1, -9, 4.99, 1, -9, 4.99, 0.25, -9.75, 5.99, 2.25, -9.75, 5.99, 3, -9, 5.99, 3, -9, 5.99, 2.25, -9.75, 4.99, 4.25, -9.75, 4.99, 5, -9, 4.99, 5, -9, 4.99, 4.25, -9.75, 3.99, 6.25, -9.75, 3.99, 7, -9, 3.99, 7, -9, 3.99, 6.25, -9.75, 2.99, 8.25, -9.75, 2.99, 9, -9, 2.99, 9, -9, 2.99, 8.25, -8.25, 0.99, 12.25, -9.5, 0.99, 12.25, -9.5, 0.99, 499.25, -7.75, 0.99, 11.75, 499.25, 0.99, 499.25, -9.75, 1.99, 10.25, -9.75, 1.99, 11, -9, 1.99, 11, -9, 1.99, 10.25, -11, 0.99, 12, -499.25, 0.99, 499.25)
+polygons = [PackedInt32Array(2, 1, 0), PackedInt32Array(2, 0, 3), PackedInt32Array(3, 0, 4), PackedInt32Array(4, 0, 5), PackedInt32Array(3, 4, 6), PackedInt32Array(6, 4, 8), PackedInt32Array(6, 8, 7), PackedInt32Array(7, 9, 6), PackedInt32Array(13, 12, 10), PackedInt32Array(10, 12, 11), PackedInt32Array(15, 14, 1), PackedInt32Array(1, 14, 0), PackedInt32Array(9, 7, 16), PackedInt32Array(16, 7, 17), PackedInt32Array(21, 20, 18), PackedInt32Array(18, 20, 19), PackedInt32Array(25, 24, 22), PackedInt32Array(22, 24, 23), PackedInt32Array(29, 28, 26), PackedInt32Array(26, 28, 27), PackedInt32Array(33, 32, 30), PackedInt32Array(30, 32, 31), PackedInt32Array(37, 36, 34), PackedInt32Array(34, 36, 35), PackedInt32Array(41, 40, 38), PackedInt32Array(38, 40, 39), PackedInt32Array(45, 44, 42), PackedInt32Array(42, 44, 43), PackedInt32Array(48, 47, 46), PackedInt32Array(46, 49, 48), PackedInt32Array(48, 49, 50), PackedInt32Array(50, 49, 17), PackedInt32Array(49, 16, 17), PackedInt32Array(54, 53, 51), PackedInt32Array(51, 53, 52), PackedInt32Array(47, 48, 55), PackedInt32Array(55, 48, 56), PackedInt32Array(55, 56, 14), PackedInt32Array(14, 15, 55)]
+geometry_collision_mask = 4294966783
+agent_height = 50.0
+filter_low_hanging_obstacles = true
+filter_ledge_spans = true
+filter_walkable_low_height_spans = true
+
+[node name="Gym" type="Node3D" unique_id=1944218977]
+script = ExtResource("1_a854a")
+
+[node name="Player2" parent="." unique_id=1417458 instance=ExtResource("19_x7phl")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.48999953, -4)
+
+[node name="Player" parent="." unique_id=598808722 groups=["Player"] instance=ExtResource("1_lpwyr")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.48999828, 0)
+
+[node name="WeaponComponent" parent="Player" unique_id=1926944636 instance=ExtResource("3_5ll4s")]
+collision_mask = 4
+
+[node name="Label3D" type="Label3D" parent="." unique_id=1976683462]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.4333043, 5.085642, -9.140066)
+billboard = 1
+no_depth_test = true
+text = "res://routes/docs/playground.tscn"
+font_size = 100
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1740513674]
+environment = SubResource("Environment_vtdpf")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1006154017]
+transform = Transform3D(-0.8660254, -0.43301278, 0.25, 0, 0.49999997, 0.86602545, -0.50000006, 0.75, -0.43301266, 0, 0, 0)
+shadow_enabled = true
+
+[node name="EnemySpawner" parent="." unique_id=1408838197 instance=ExtResource("13_60eds")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+spawn_data_list = Array[ExtResource("14_dd4s8")]([SubResource("Resource_2pjm7")])
+
+[node name="Example" type="Node3D" parent="." unique_id=978891158]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0.5, 0.5, -10.5)
+
+[node name="CharacterBody3D" type="CharacterBody3D" parent="Example" unique_id=1041503854]
+collision_layer = 4
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Example/CharacterBody3D" unique_id=189150603]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.99, 0)
+shape = SubResource("CapsuleShape3D_x7phl")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Example/CharacterBody3D" unique_id=1925375416]
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 0, 0.99, 0)
+mesh = SubResource("CapsuleMesh_ostbp")
+
+[node name="glasses16_001" parent="Example/CharacterBody3D/MeshInstance3D" unique_id=838045792 instance=ExtResource("9_cde1g")]
+transform = Transform3D(0.48, 0, 0, 0, 0.48, 0, 0, 0, 0.48, 0, 0.6, 0.17)
+
+[node name="HealthBarComponent" parent="Example" unique_id=864028086 instance=ExtResource("6_pn1np")]
+transform = Transform3D(0.3, 0, 0, 0, 0.3, 0, 0, 0, 0.3, 0, 2.5, 0)
+texture = SubResource("ViewportTexture_du3yr")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="Example" unique_id=1138809295]
+root_node = NodePath("../..")
+libraries/ = SubResource("AnimationLibrary_2d8br")
+autoplay = &"new_animation"
+
+[node name="HurtboxComponent" parent="Example" unique_id=1950115901 node_paths=PackedStringArray("health_component", "health_bar_component", "hit_flash_component") instance=ExtResource("7_60eds")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+collision_layer = 4
+health_component = NodePath("../HealthComponent")
+health_bar_component = NodePath("../HealthBarComponent")
+hit_flash_component = NodePath("../HitFlashComponent")
+
+[node name="CollisionShape3D" parent="Example/HurtboxComponent" index="0" unique_id=1367186580]
+shape = SubResource("CapsuleShape3D_30h57")
+debug_color = Color(0.4745098, 0.22352941, 0.78039217, 1)
+
+[node name="HitboxComponent" parent="Example/HurtboxComponent" unique_id=817385232 instance=ExtResource("8_dd4s8")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3)
+collision_mask = 4
+damage = -10
+
+[node name="CollisionShape3D" parent="Example/HurtboxComponent/HitboxComponent" index="1" unique_id=1158623999]
+shape = SubResource("SphereShape3D_30h57")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Example/HurtboxComponent/HitboxComponent" unique_id=782835072]
+mesh = SubResource("SphereMesh_plcdq")
+
+[node name="HealthComponent" parent="Example" unique_id=2086384134 instance=ExtResource("9_jc3om")]
+
+[node name="HitFlashComponent" parent="Example" unique_id=480447811 node_paths=PackedStringArray("root_node") instance=ExtResource("10_3184x")]
+root_node = NodePath("../CharacterBody3D/MeshInstance3D")
+
+[node name="NumbersComponent" parent="Example" unique_id=333203928 instance=ExtResource("11_5h31n")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.029841, -3)
+
+[node name="RadarComponent" parent="." unique_id=1982901923 instance=ExtResource("12_fxgnr")]
+
+[node name="InteractableComponent" parent="." unique_id=891153314 instance=ExtResource("15_dd4s8")]
+transform = Transform3D(0.99999976, 0, 1.7484551e-07, 0, 1, 0, -1.7484551e-07, 0, 0.99999976, 0, 1, 5)
+
+[node name="Marker3D" type="Marker3D" parent="InteractableComponent" unique_id=884745732]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="InteractableComponent/Marker3D" unique_id=1337294014]
+mesh = SubResource("SphereMesh_5v58r")
+
+[node name="Sprite3D" type="Sprite3D" parent="InteractableComponent/Marker3D" unique_id=1634622352]
+process_mode = 3
+billboard = 1
+no_depth_test = true
+texture = ExtResource("20_2pjm7")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="InteractableComponent" unique_id=703569690]
+libraries/ = SubResource("AnimationLibrary_11d6r")
+autoplay = &"new_animation"
+
+[node name="InteractableComponent2" parent="." unique_id=1287429375 instance=ExtResource("15_dd4s8")]
+transform = Transform3D(0.99999976, 0, 1.7484551e-07, 0, 1, 0, -1.7484551e-07, 0, 0.99999976, -4, 1, 7)
+
+[node name="Marker3D" type="Marker3D" parent="InteractableComponent2" unique_id=875834231]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="InteractableComponent2/Marker3D" unique_id=410872175]
+mesh = SubResource("SphereMesh_5v58r")
+
+[node name="Sprite3D" type="Sprite3D" parent="InteractableComponent2/Marker3D" unique_id=1456011113]
+process_mode = 3
+billboard = 1
+no_depth_test = true
+texture = ExtResource("20_2pjm7")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="InteractableComponent2" unique_id=277811347]
+libraries/ = SubResource("AnimationLibrary_11d6r")
+autoplay = &"new_animation"
+
+[node name="InteractableComponent3" parent="." unique_id=690181747 instance=ExtResource("15_dd4s8")]
+transform = Transform3D(0.99999976, 0, 1.7484551e-07, 0, 1, 0, -1.7484551e-07, 0, 0.99999976, -2, 1, 5)
+
+[node name="Marker3D" type="Marker3D" parent="InteractableComponent3" unique_id=1316581953]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="InteractableComponent3/Marker3D" unique_id=1421319363]
+mesh = SubResource("SphereMesh_5v58r")
+
+[node name="Sprite3D" type="Sprite3D" parent="InteractableComponent3/Marker3D" unique_id=1868981606]
+process_mode = 3
+billboard = 1
+no_depth_test = true
+texture = ExtResource("20_2pjm7")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="InteractableComponent3" unique_id=709894127]
+libraries/ = SubResource("AnimationLibrary_11d6r")
+autoplay = &"new_animation"
+
+[node name="InteractableComponent4" parent="." unique_id=1721703664 instance=ExtResource("15_dd4s8")]
+transform = Transform3D(0.99999976, 0, 1.7484551e-07, 0, 1, 0, -1.7484551e-07, 0, 0.99999976, -2, 1, 8)
+
+[node name="Marker3D" type="Marker3D" parent="InteractableComponent4" unique_id=746155457]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="InteractableComponent4/Marker3D" unique_id=1595240704]
+mesh = SubResource("SphereMesh_5v58r")
+
+[node name="Sprite3D" type="Sprite3D" parent="InteractableComponent4/Marker3D" unique_id=262517837]
+process_mode = 3
+billboard = 1
+no_depth_test = true
+texture = ExtResource("20_2pjm7")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="InteractableComponent4" unique_id=354571162]
+libraries/ = SubResource("AnimationLibrary_11d6r")
+autoplay = &"new_animation"
+
+[node name="InteractableComponent5" parent="." unique_id=1470054615 instance=ExtResource("15_dd4s8")]
+transform = Transform3D(0.99999976, 0, 1.7484551e-07, 0, 1, 0, -1.7484551e-07, 0, 0.99999976, -6, 1, 10)
+
+[node name="Marker3D" type="Marker3D" parent="InteractableComponent5" unique_id=243479821]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="InteractableComponent5/Marker3D" unique_id=194159830]
+mesh = SubResource("SphereMesh_5v58r")
+
+[node name="Sprite3D" type="Sprite3D" parent="InteractableComponent5/Marker3D" unique_id=2089740903]
+process_mode = 3
+billboard = 1
+no_depth_test = true
+texture = ExtResource("20_2pjm7")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="InteractableComponent5" unique_id=1732920024]
+libraries/ = SubResource("AnimationLibrary_11d6r")
+autoplay = &"new_animation"
+
+[node name="NavigationRegion3D" type="NavigationRegion3D" parent="." unique_id=467766469 groups=["Navigation"]]
+navigation_mesh = SubResource("NavigationMesh_5ll4s")
+metadata/_edit_lock_ = true
+
+[node name="CSGCombiner3D" type="CSGCombiner3D" parent="NavigationRegion3D" unique_id=1435336902]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.01, 0)
+use_collision = true
+
+[node name="Ground" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=1879151241]
+size = Vector3(1000, 1, 1000)
+material = ExtResource("15_ostbp")
+
+[node name="CSGBox3D" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=1204705078]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.5, 1, -5.5)
+size = Vector3(2, 1, 2)
+material = ExtResource("15_30h57")
+
+[node name="CSGBox3D5" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=1708345126]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.5, 1, 10.5)
+size = Vector3(2, 1, 2)
+material = ExtResource("15_30h57")
+
+[node name="CSGBox3D2" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=1346944837]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.5, 1.5, -3.5)
+size = Vector3(2, 2, 2)
+material = ExtResource("15_30h57")
+
+[node name="CSGBox3D3" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=1947488411]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.5, 2.5, -1.5)
+size = Vector3(2, 2, 2)
+material = ExtResource("15_30h57")
+
+[node name="CSGBox3D4" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=2090241421]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.5, 3.5, 0.5)
+size = Vector3(2, 2, 2)
+material = ExtResource("15_30h57")
+
+[node name="CSGBox3D6" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=561267314]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.5, 4.5, 2.5)
+size = Vector3(2, 2, 2)
+material = ExtResource("15_30h57")
+
+[node name="CSGBox3D8" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=460506762]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.5, 3.4999998, 4.5)
+size = Vector3(2, 2, 2)
+material = ExtResource("15_30h57")
+
+[node name="CSGBox3D7" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=1684677355]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.5, 2.5, 6.5)
+size = Vector3(2, 2, 2)
+material = ExtResource("15_30h57")
+
+[node name="CSGBox3D9" type="CSGBox3D" parent="NavigationRegion3D/CSGCombiner3D" unique_id=1333464653]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.5, 1.5, 8.5)
+size = Vector3(2, 2, 2)
+material = ExtResource("15_30h57")
+
+[editable path="EnemySpawner"]
+[editable path="Example/HurtboxComponent"]
+[editable path="Example/HurtboxComponent/HitboxComponent"]
+[editable path="Example/HealthComponent"]

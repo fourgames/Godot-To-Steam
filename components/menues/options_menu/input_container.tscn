@@ -1,0 +1,105 @@
+[gd_scene format=3 uid="uid://dmbuwj1hlif3n"]
+
+[ext_resource type="Script" uid="uid://bvbjtf8bdjr3g" path="res://components/menues/options_menu/input_container.gd" id="1_ois1q"]
+[ext_resource type="Texture2D" uid="uid://bg15420ibjlhr" path="res://components/menues/options_menu/normal-anticlockwise-rotation.svg" id="2_6h4s8"]
+[ext_resource type="Texture2D" uid="uid://bfllxind7thyf" path="res://components/menues/options_menu/press-anticlockwise-rotation.svg" id="3_6h4s8"]
+[ext_resource type="Texture2D" uid="uid://pgx74b2ttota" path="res://components/controller_icons/resources/input_option.tres" id="3_8qki5"]
+[ext_resource type="Texture2D" uid="uid://b7eqyp0mkutmc" path="res://components/menues/options_menu/hover-anticlockwise-rotation.svg" id="4_p1tg7"]
+
+[node name="InputHSplitContainer" type="HSplitContainer" unique_id=835391941]
+custom_minimum_size = Vector2(0, 32)
+split_offsets = PackedInt32Array(222)
+split_offset = 222
+script = ExtResource("1_ois1q")
+
+[node name="InputLabel" type="Label" parent="." unique_id=1920349516]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Move Forward"
+
+[node name="InputResetButton" type="TextureButton" parent="InputLabel" unique_id=1654091349]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(20, 0)
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -20.0
+offset_top = -15.5
+offset_bottom = 15.5
+grow_horizontal = 0
+grow_vertical = 2
+texture_normal = ExtResource("2_6h4s8")
+texture_pressed = ExtResource("3_6h4s8")
+texture_hover = ExtResource("4_p1tg7")
+ignore_texture_size = true
+stretch_mode = 5
+
+[node name="InputHSplitContainer" type="HSplitContainer" parent="." unique_id=1099496589]
+layout_mode = 2
+
+[node name="PrimaryInputButton" type="Button" parent="InputHSplitContainer" unique_id=1480298500]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "W"
+
+[node name="PrimaryInputTextureButton" type="TextureButton" parent="InputHSplitContainer/PrimaryInputButton" unique_id=345720085]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+disabled = true
+texture_normal = ExtResource("3_8qki5")
+ignore_texture_size = true
+stretch_mode = 5
+
+[node name="PrimaryInputProgressBar" type="ProgressBar" parent="InputHSplitContainer/PrimaryInputButton" unique_id=947033901]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+indeterminate = true
+editor_preview_indeterminate = true
+
+[node name="SecondaryInputButton" type="Button" parent="InputHSplitContainer" unique_id=671369433]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "W"
+
+[node name="SecondaryInputTextureButton" type="TextureButton" parent="InputHSplitContainer/SecondaryInputButton" unique_id=1343814469]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+disabled = true
+texture_normal = ExtResource("3_8qki5")
+ignore_texture_size = true
+stretch_mode = 5
+
+[node name="SecondaryInputProgressBar" type="ProgressBar" parent="InputHSplitContainer/SecondaryInputButton" unique_id=272420644]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+indeterminate = true
+editor_preview_indeterminate = true

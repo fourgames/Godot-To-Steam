@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cfkbyu0hhuoxu"]
+
+[ext_resource type="Script" uid="uid://blhe6200equcp" path="res://components/radar_component/radar_component.gd" id="1_b8n71"]
+
+[node name="RadarComponent" type="Node3D" unique_id=1982901923]
+script = ExtResource("1_b8n71")

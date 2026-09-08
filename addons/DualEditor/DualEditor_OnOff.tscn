@@ -1,0 +1,14 @@
+[gd_scene format=3 uid="uid://bhk67yf2d7ixi"]
+
+[ext_resource type="Script" uid="uid://b8lxs1645yqkw" path="res://addons/DualEditor/DualEditor_OnOff.gd" id="1_7g5ul"]
+
+[node name="DualEditorOnOff" type="HBoxContainer" unique_id=866666320 node_paths=PackedStringArray("toggle_button")]
+offset_right = 143.0
+offset_bottom = 31.0
+script = ExtResource("1_7g5ul")
+toggle_button = NodePath("CheckButton")
+
+[node name="CheckButton" type="CheckButton" parent="." unique_id=122202835]
+custom_minimum_size = Vector2(100, 2.08165e-12)
+layout_mode = 2
+text = "2D | 3D"

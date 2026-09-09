@@ -1,15 +1,49 @@
 [gd_scene format=3 uid="uid://ccwbs581hfimh"]
 
 [ext_resource type="Script" uid="uid://bacu3djkkodxc" path="res://features/main_window/main_window.gd" id="1_main"]
-[ext_resource type="Texture2D" uid="uid://c8wr5orr4jn52" path="res://public/favicon.svg" id="2_icon"]
+[ext_resource type="Texture2D" uid="uid://r8phqwxmscr4" path="res://public/app_icon_macos.svg" id="2_icon"]
 [ext_resource type="Script" uid="uid://baykygx2wr5is" path="res://features/main_window/steam_assets.gd" id="3_steam_assets"]
 [ext_resource type="Shader" uid="uid://ch7kb2t2kl03s" path="res://features/main_window/rounded_rect.gdshader" id="4_rounded"]
-[ext_resource type="Texture2D" uid="uid://bssxpbvly82ow" path="res://public/icons/editor/visibility_visible.svg" id="5_eye_open"]
+[ext_resource type="Script" path="res://features/main_window/steam_profile.gd" id="6_steam_profile"]
+[ext_resource type="Texture2D" uid="uid://b2qo1wsn5r6hs" path="res://public/icons/editor/visibility_hidden.svg" id="5_eye_closed"]
+[ext_resource type="Script" path="res://features/main_window/discord_widget.gd" id="8_discord_widget"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/add.svg" id="8_add"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/script.svg" id="10_script"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/asset_store.svg" id="11_asset_store"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/signals.svg" id="12_signals"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/main_play.svg" id="13_main_play"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/close.svg" id="14_close"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/arrow_down.svg" id="15_arrow_down"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/reload.svg" id="16_reload"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/external_link.svg" id="17_external_link"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/import_check.svg" id="18_check"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/gui_tree_arrow_right.svg" id="19_tree_right"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/folder.svg" id="20_folder"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/search.svg" id="21_search"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/remove.svg" id="22_remove"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/distraction_free.svg" id="23_distraction_free"]
+[ext_resource type="Texture2D" path="res://public/icons/editor/key.svg" id="23_key"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_header"]
 shader = ExtResource("4_rounded")
 shader_parameter/radius = 10.0
 shader_parameter/size = Vector2(100, 150)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_avatar"]
+shader = ExtResource("4_rounded")
+shader_parameter/radius = 13.0
+shader_parameter/size = Vector2(26, 26)
+
+[sub_resource type="Gradient" id="Gradient_fade"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(0.08235, 0.08235, 0.08235, 1, 0.08235, 0.08235, 0.08235, 0)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_fade"]
+gradient = SubResource("Gradient_fade")
+width = 4
+height = 32
+fill_from = Vector2(0, 0)
+fill_to = Vector2(0, 1)
 
 [node name="MainWindow" type="Control" unique_id=1339785249]
 layout_mode = 3
@@ -58,12 +92,15 @@ theme_override_constants/margin_bottom = 6
 layout_mode = 2
 theme_override_constants/separation = 2
 
-[node name="NewGameButton" type="Button" parent="Layout/Sidebar/SidebarLayout/NavMargin/Nav" unique_id=341510785]
+[node name="NewAppButton" type="Button" parent="Layout/Sidebar/SidebarLayout/NavMargin/Nav"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
-theme_type_variation = &"SidebarItem"
-text = "+   New game"
+tooltip_text = "Add a project"
+theme_type_variation = &"SidebarNav"
+toggle_mode = true
+icon = ExtResource("8_add")
+text = "New"
 alignment = 0
 
 [node name="ConsoleToggle" type="Button" parent="Layout/Sidebar/SidebarLayout/NavMargin/Nav" unique_id=1744456551]
@@ -71,13 +108,36 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 tooltip_text = "Show or hide the console"
-theme_type_variation = &"SidebarItem"
+theme_type_variation = &"SidebarNav"
 toggle_mode = true
 button_pressed = true
-text = ">_   Console"
+icon = ExtResource("10_script")
+text = "Console"
 alignment = 0
 
-[node name="GamesHeader" type="MarginContainer" parent="Layout/Sidebar/SidebarLayout" unique_id=1453356695]
+[node name="SteamCmdButton" type="Button" parent="Layout/Sidebar/SidebarLayout/NavMargin/Nav"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+tooltip_text = "SteamCMD setup and Steam account, shared by every app"
+theme_type_variation = &"SidebarNav"
+toggle_mode = true
+icon = ExtResource("11_asset_store")
+text = "SteamCMD"
+alignment = 0
+
+[node name="DiscordButton" type="Button" parent="Layout/Sidebar/SidebarLayout/NavMargin/Nav"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+tooltip_text = "Community Discord server"
+theme_type_variation = &"SidebarNav"
+toggle_mode = true
+icon = ExtResource("12_signals")
+text = "Discord"
+alignment = 0
+
+[node name="AppsHeader" type="MarginContainer" parent="Layout/Sidebar/SidebarLayout" unique_id=1453356695]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/margin_left = 20
@@ -85,25 +145,25 @@ theme_override_constants/margin_top = 14
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 4
 
-[node name="GamesHeaderRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/GamesHeader" unique_id=867755884]
+[node name="AppsHeaderRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/AppsHeader" unique_id=867755884]
 layout_mode = 2
 
-[node name="GamesLabel" type="Label" parent="Layout/Sidebar/SidebarLayout/GamesHeader/GamesHeaderRow" unique_id=1032686696]
+[node name="AppsLabel" type="Label" parent="Layout/Sidebar/SidebarLayout/AppsHeader/AppsHeaderRow" unique_id=1032686696]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"SectionLabel"
-text = "Games"
+text = "Apps"
 
-[node name="AddGameButton" type="Button" parent="Layout/Sidebar/SidebarLayout/GamesHeader/GamesHeaderRow" unique_id=803279436]
+[node name="AddAppButton" type="Button" parent="Layout/Sidebar/SidebarLayout/AppsHeader/AppsHeaderRow" unique_id=803279436]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(24, 24)
 layout_mode = 2
-tooltip_text = "Add a Godot project"
+tooltip_text = "Add a project"
 theme_type_variation = &"IconButton"
-text = "+"
+icon = ExtResource("8_add")
+icon_alignment = 1
 
 [node name="ProjectScroll" type="ScrollContainer" parent="Layout/Sidebar/SidebarLayout" unique_id=1296976066]
-custom_minimum_size = Vector2(0, 88)
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
@@ -123,11 +183,11 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 2
 
-[node name="NoGamesLabel" type="Label" parent="Layout/Sidebar/SidebarLayout/ProjectScroll/ProjectMargin/ProjectList" unique_id=766402755]
+[node name="NoAppsLabel" type="Label" parent="Layout/Sidebar/SidebarLayout/ProjectScroll/ProjectMargin/ProjectList" unique_id=766402755]
 unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"Caption"
-text = "No games yet. Add a Godot project to get started."
+text = "No apps yet. Add a project to get started."
 autowrap_mode = 3
 
 [node name="SteamAuthPanel" type="PanelContainer" parent="Layout/Sidebar/SidebarLayout" unique_id=1001136694]
@@ -139,11 +199,20 @@ theme_type_variation = &"SidebarFooter"
 layout_mode = 2
 theme_override_constants/separation = 8
 
+[node name="SidebarSignInButton" type="Button" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+tooltip_text = "Sign in to Steam with SteamCMD"
+theme_type_variation = &"PrimaryButton"
+icon = ExtResource("23_key")
+text = "Sign in"
+
 [node name="SteamAccountHeader" type="Button" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=785314105]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
-tooltip_text = "Steam account and SteamCMD settings"
+tooltip_text = "Open the SteamCMD page"
 theme_type_variation = &"SidebarItem"
 
 [node name="HeaderRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamAccountHeader" unique_id=2030957260]
@@ -173,6 +242,17 @@ text = "S"
 horizontal_alignment = 1
 vertical_alignment = 1
 
+[node name="AvatarImage" type="TextureRect" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamAccountHeader/HeaderRow/Avatar"]
+unique_name_in_owner = true
+visible = false
+texture_filter = 2
+material = SubResource("ShaderMaterial_avatar")
+custom_minimum_size = Vector2(26, 26)
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
 [node name="NameBox" type="VBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamAccountHeader/HeaderRow" unique_id=1331797669]
 layout_mode = 2
 size_flags_horizontal = 3
@@ -194,141 +274,16 @@ theme_type_variation = &"Caption"
 text = "Not signed in"
 text_overrun_behavior = 3
 
-[node name="SteamChevron" type="Label" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamAccountHeader/HeaderRow" unique_id=1049205160]
+[node name="SteamChevron" type="TextureRect" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamAccountHeader/HeaderRow" unique_id=1049205160]
 unique_name_in_owner = true
-layout_mode = 2
-theme_type_variation = &"Caption"
-text = "▴"
-
-[node name="SteamFieldsScroll" type="ScrollContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=354805501]
-unique_name_in_owner = true
-visible = false
-layout_mode = 2
-horizontal_scroll_mode = 0
-
-[node name="SteamFields" type="VBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll" unique_id=1948644967]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 8
-
-[node name="SteamUsername" type="LineEdit" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields" unique_id=74998866]
-unique_name_in_owner = true
-layout_mode = 2
-placeholder_text = "Username *"
-
-[node name="PasswordRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields" unique_id=37615870]
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="SteamPassword" type="LineEdit" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields/PasswordRow" unique_id=1963033156]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-placeholder_text = "Password"
-secret = true
-
-[node name="TogglePasswordVisible" type="Button" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields/PasswordRow" unique_id=1766657508]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(24, 24)
+modulate = Color(0.4196, 0.4196, 0.4196, 1)
+custom_minimum_size = Vector2(16, 16)
 layout_mode = 2
 size_flags_vertical = 4
-tooltip_text = "Show password"
-theme_type_variation = &"IconButton"
-toggle_mode = true
-icon = ExtResource("5_eye_open")
-icon_alignment = 1
-
-[node name="RememberRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields" unique_id=72928328]
-layout_mode = 2
-tooltip_text = "Stored as plain text in user://settings.cfg. Leave off to rely on SteamCMD's cached session instead."
-theme_override_constants/separation = 8
-
-[node name="RememberPassword" type="Button" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields/RememberRow" unique_id=1987515582]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(18, 18)
-layout_mode = 2
-size_flags_vertical = 4
-theme_type_variation = &"CheckToggle"
-toggle_mode = true
-text = "✓"
-
-[node name="RememberLabel" type="Label" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields/RememberRow" unique_id=1295231519]
-layout_mode = 2
-theme_type_variation = &"FieldLabel"
-text = "Remember password"
-
-[node name="GuardHeaderRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields" unique_id=1544586795]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="GuardLabel" type="Label" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields/GuardHeaderRow" unique_id=400439911]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_type_variation = &"SectionLabel"
-text = "Steam Guard"
-
-[node name="SteamGuardCode" type="LineEdit" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields" unique_id=665875741]
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Only needed when no shared secret is set."
-placeholder_text = "Steam Guard code"
-max_length = 8
-
-[node name="SecretRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields" unique_id=1181147793]
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="SteamSharedSecret" type="LineEdit" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields/SecretRow" unique_id=1055712877]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-tooltip_text = "Optional. If you already have a Steam Guard shared_secret (base64) for a dedicated build account, paste it here and the app generates login codes automatically. Leave empty to type a Steam Guard code once and rely on SteamCMD's cached session."
-placeholder_text = "Shared secret (TOTP)"
-secret = true
-
-[node name="ToggleSecretVisible" type="Button" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields/SecretRow" unique_id=1890842419]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(24, 24)
-layout_mode = 2
-size_flags_vertical = 4
-tooltip_text = "Show shared secret"
-theme_type_variation = &"IconButton"
-toggle_mode = true
-icon = ExtResource("5_eye_open")
-icon_alignment = 1
-
-[node name="RememberSecretRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields" unique_id=464634738]
-layout_mode = 2
-tooltip_text = "Stored as plain text in user://settings.cfg. Leave off to keep the secret only until you quit the app."
-theme_override_constants/separation = 8
-
-[node name="RememberSharedSecret" type="Button" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields/RememberSecretRow" unique_id=947246809]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(18, 18)
-layout_mode = 2
-size_flags_vertical = 4
-theme_type_variation = &"CheckToggle"
-toggle_mode = true
-text = "✓"
-
-[node name="RememberSecretLabel" type="Label" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields/RememberSecretRow" unique_id=1122349825]
-layout_mode = 2
-theme_type_variation = &"FieldLabel"
-text = "Remember shared secret"
-
-[node name="SteamStatusLabel" type="Label" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields" unique_id=994292716]
-unique_name_in_owner = true
-layout_mode = 2
-theme_type_variation = &"Caption"
-text = "Not signed in"
-autowrap_mode = 3
-
-[node name="SteamLoginButton" type="Button" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamFieldsScroll/SteamFields" unique_id=923094443]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 32)
-layout_mode = 2
-text = "Test login & cache session"
+mouse_filter = 2
+texture = ExtResource("19_tree_right")
+expand_mode = 1
+stretch_mode = 5
 
 [node name="TotpTimer" type="Timer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel" unique_id=1581936450]
 unique_name_in_owner = true
@@ -340,18 +295,24 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 
 [node name="MainView" type="VBoxContainer" parent="Layout/Content" unique_id=328409064]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 0
 
-[node name="UpperScroll" type="ScrollContainer" parent="Layout/Content/MainView" unique_id=1020363755]
+[node name="ScrollFrame" type="MarginContainer" parent="Layout/Content/MainView"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="UpperScroll" type="ScrollContainer" parent="Layout/Content/MainView/ScrollFrame" unique_id=1020363755]
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 3
 vertical_scroll_mode = 4
 
-[node name="ContentMargin" type="MarginContainer" parent="Layout/Content/MainView/UpperScroll" unique_id=1017459034]
+[node name="ContentMargin" type="MarginContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll" unique_id=1017459034]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -360,194 +321,631 @@ theme_override_constants/margin_top = 28
 theme_override_constants/margin_right = 28
 theme_override_constants/margin_bottom = 12
 
-[node name="UpperLayout" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin" unique_id=1894562367]
+[node name="UpperLayout" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin" unique_id=1894562367]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 22
 
-[node name="EmptyState" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout" unique_id=115669569]
+[node name="SetupPage" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
-alignment = 1
+theme_override_constants/separation = 22
 
-[node name="EmptyInner" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/EmptyState" unique_id=526955965]
-custom_minimum_size = Vector2(440, 0)
+[node name="TitleBlock" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage"]
 layout_mode = 2
-size_flags_horizontal = 4
+theme_override_constants/separation = 6
+
+[node name="TitleRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/TitleBlock"]
+layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="EmptyMark" type="TextureRect" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/EmptyState/EmptyInner" unique_id=252789490]
-custom_minimum_size = Vector2(52, 52)
+[node name="EmptyMark" type="TextureRect" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/TitleBlock/TitleRow"]
+custom_minimum_size = Vector2(28, 28)
 layout_mode = 2
-size_flags_horizontal = 4
+size_flags_vertical = 4
 texture = ExtResource("2_icon")
 expand_mode = 1
 stretch_mode = 5
 
-[node name="EmptySpacer" type="Control" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/EmptyState/EmptyInner" unique_id=1489138846]
-custom_minimum_size = Vector2(0, 4)
+[node name="SetupTitle" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/TitleBlock/TitleRow"]
+unique_name_in_owner = true
 layout_mode = 2
-
-[node name="EmptyTitle" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/EmptyState/EmptyInner" unique_id=77004531]
-layout_mode = 2
+size_flags_horizontal = 3
 theme_type_variation = &"Heading"
 text = "Welcome to Godot to Steam"
-horizontal_alignment = 1
 
-[node name="EmptySub" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/EmptyState/EmptyInner" unique_id=298200003]
+[node name="SetupSub" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/TitleBlock"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"Muted"
-text = "Add a Godot project, point it at your Steam App ID, and publish a build with one click."
-horizontal_alignment = 1
+text = "Two things are needed before an app can be added: SteamCMD and a Steam login. Both are shared by every app."
 autowrap_mode = 3
 
-[node name="EmptySpacer2" type="Control" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/EmptyState/EmptyInner" unique_id=1561079541]
-custom_minimum_size = Vector2(0, 8)
-layout_mode = 2
-
-[node name="EmptyActions" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/EmptyState/EmptyInner" unique_id=1019791025]
-layout_mode = 2
-alignment = 1
-
-[node name="EmptyNewGameButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/EmptyState/EmptyInner/EmptyActions" unique_id=1789010926]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 36)
-layout_mode = 2
-theme_type_variation = &"PrimaryButton"
-text = "+   New game"
-
-[node name="ProjectSettings" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout" unique_id=1568203116]
-unique_name_in_owner = true
-visible = false
-layout_mode = 2
-size_flags_vertical = 3
-theme_override_constants/separation = 22
-
-[node name="TitleBlock" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=321898325]
-layout_mode = 2
-theme_override_constants/separation = 2
-
-[node name="TitleRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock" unique_id=748571274]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="TitleMark" type="TextureRect" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock/TitleRow" unique_id=541553517]
-unique_name_in_owner = true
-texture_filter = 2
-custom_minimum_size = Vector2(24, 24)
-layout_mode = 2
-size_flags_vertical = 4
-texture = ExtResource("2_icon")
-expand_mode = 1
-stretch_mode = 5
-
-[node name="ProjectTitle" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock/TitleRow" unique_id=1806168844]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-theme_type_variation = &"Heading"
-text = "Project name"
-text_overrun_behavior = 3
-
-[node name="BrowseButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock/TitleRow" unique_id=298640581]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_vertical = 4
-tooltip_text = "Point this entry at a different project folder"
-theme_type_variation = &"FlatButton"
-text = "Change folder…"
-
-[node name="RemoveProjectButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock/TitleRow" unique_id=751814096]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_vertical = 4
-tooltip_text = "Remove from this list (does not touch the project folder)"
-theme_type_variation = &"DangerButton"
-text = "Remove"
-
-[node name="ProjectPath" type="LineEdit" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock" unique_id=102148876]
-unique_name_in_owner = true
-layout_mode = 2
-theme_type_variation = &"GhostField"
-placeholder_text = "Path to the game's project folder"
-editable = false
-
-[node name="GodotSection" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=777687875]
+[node name="SteamCmdSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="GodotSectionLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection" unique_id=1478352234]
+[node name="SteamCmdHeader" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection"]
 layout_mode = 2
-theme_type_variation = &"SectionLabel"
-text = "Godot"
+theme_override_constants/separation = 8
 
-[node name="GodotCard" type="PanelContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection" unique_id=1819834362]
+[node name="SteamCmdSectionLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_type_variation = &"SectionLabel"
+text = "SteamCMD"
+
+[node name="DetectSteamCmdButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Search PATH and common install folders for SteamCMD"
+theme_type_variation = &"FlatButton"
+icon = ExtResource("21_search")
+text = "Detect"
+
+[node name="DownloadSteamCmdButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Downloads Valve's official SteamCMD into this app's data folder and fills in the path"
+theme_type_variation = &"FlatButton"
+icon = ExtResource("16_reload")
+text = "Download SteamCMD"
+
+[node name="SteamCmdCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection"]
 layout_mode = 2
 theme_type_variation = &"Card"
 
-[node name="GodotRows" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard" unique_id=1241626327]
+[node name="SteamCmdRows" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="GodotRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows" unique_id=546847076]
+[node name="StatusRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="GodotLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow"]
-custom_minimum_size = Vector2(120, 0)
-layout_mode = 2
-theme_override_constants/separation = 3
-
-[node name="GodotLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow/GodotLabelRow"]
-layout_mode = 2
-theme_type_variation = &"FieldLabel"
-text = "Binary"
-
-[node name="Star" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow/GodotLabelRow"]
-layout_mode = 2
-theme_type_variation = &"RequiredMark"
-text = "*"
-
-[node name="GodotBinary" type="LineEdit" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow" unique_id=1955140162]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-placeholder_text = "Empty – click Detect or Browse…"
-
-[node name="BrowseGodotButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow" unique_id=2057361969]
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Pick the Godot executable, or the Godot.app bundle on macOS"
-text = "Browse…"
-
-[node name="CheckGodotButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow" unique_id=1841323615]
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Verify the binary's version. With an empty field this searches /Applications and the Steam library for a matching Godot."
-text = "Detect"
-
-[node name="VersionRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows" unique_id=2081782987]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="VersionLabelTitle" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/VersionRow" unique_id=554193963]
+[node name="StatusLabelTitle" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows/StatusRow"]
 custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
 theme_type_variation = &"FieldLabel"
-text = "Version"
+text = "Status"
 
-[node name="GodotVersionDot" type="Panel" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/VersionRow" unique_id=1368653991]
+[node name="SteamCmdDot" type="Panel" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows/StatusRow"]
 unique_name_in_owner = true
-self_modulate = Color(0.4314, 0.4157, 0.3843, 1)
+self_modulate = Color(0.4196, 0.4196, 0.4196, 1)
 custom_minimum_size = Vector2(8, 8)
 layout_mode = 2
 size_flags_vertical = 4
 mouse_filter = 2
 theme_type_variation = &"Dot"
 
-[node name="GodotVersionLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/VersionRow" unique_id=1545589488]
+[node name="SteamCmdStatusLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"Muted"
+text = "Not installed"
+text_overrun_behavior = 3
+
+[node name="SteamCmdPathRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SteamCmdLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows/SteamCmdPathRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="SteamCmdLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows/SteamCmdPathRow/SteamCmdLabelRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Binary"
+
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows/SteamCmdPathRow/SteamCmdLabelRow"]
+layout_mode = 2
+theme_type_variation = &"RequiredMark"
+text = "*"
+
+[node name="SteamCmdWebsiteButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows/SteamCmdPathRow/SteamCmdLabelRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Open the SteamCMD page on the Valve Developer Wiki"
+theme_type_variation = &"IconButton"
+icon = ExtResource("17_external_link")
+icon_alignment = 1
+
+[node name="SteamCmdBinary" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows/SteamCmdPathRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Path to the steamcmd executable, or just 'steamcmd' if it is on your PATH. Shared by all apps."
+placeholder_text = "steamcmd or full path"
+
+[node name="BrowseSteamCmdButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdCard/SteamCmdRows/SteamCmdPathRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Pick the steamcmd executable (steamcmd.sh on macOS/Linux, steamcmd.exe on Windows)"
+theme_type_variation = &"IconButton"
+icon = ExtResource("20_folder")
+icon_alignment = 1
+
+[node name="AccountSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AccountHeader" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AccountSectionLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_type_variation = &"SectionLabel"
+text = "Steam account"
+
+[node name="AccountCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="AccountRows" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="StatusRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="StatusLabelTitle" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/StatusRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Status"
+
+[node name="AccountDot" type="Panel" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/StatusRow"]
+unique_name_in_owner = true
+self_modulate = Color(0.4196, 0.4196, 0.4196, 1)
+custom_minimum_size = Vector2(8, 8)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_type_variation = &"Dot"
+
+[node name="SteamStatusLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"Muted"
+text = "Not signed in"
+text_overrun_behavior = 3
+
+[node name="UsernameRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="UsernameLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/UsernameRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="UsernameLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/UsernameRow/UsernameLabelRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Username"
+
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/UsernameRow/UsernameLabelRow"]
+layout_mode = 2
+theme_type_variation = &"RequiredMark"
+text = "*"
+
+[node name="SteamUsername" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/UsernameRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Steam account with publish access"
+
+[node name="PasswordRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PasswordLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/PasswordRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="PasswordLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/PasswordRow/PasswordLabelRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Password"
+
+[node name="SteamPassword" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/PasswordRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Leave empty to rely on SteamCMD's cached session."
+placeholder_text = "Password"
+secret = true
+
+[node name="TogglePasswordVisible" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/PasswordRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Show password"
+theme_type_variation = &"IconButton"
+toggle_mode = true
+icon = ExtResource("5_eye_closed")
+icon_alignment = 1
+
+[node name="RememberRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/PasswordRow"]
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Stored as plain text in user://settings.cfg. Leave off to rely on SteamCMD's cached session instead."
+theme_override_constants/separation = 6
+
+[node name="RememberPassword" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/PasswordRow/RememberRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"CheckToggle"
+toggle_mode = true
+icon = ExtResource("18_check")
+icon_alignment = 1
+
+[node name="RememberLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/PasswordRow/RememberRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Remember"
+
+[node name="GuardRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="GuardLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/GuardRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="GuardLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/GuardRow/GuardLabelRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Steam Guard code"
+
+[node name="SteamGuardCode" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/GuardRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Optional. Type the current code from the Steam mobile app (or your email) before Sign in to skip the phone approval. Leave empty to approve the sign-in on your phone instead."
+placeholder_text = "Optional – code from the Steam mobile app or your email"
+max_length = 8
+
+[node name="SecretRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SecretLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/SecretRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="SecretLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/SecretRow/SecretLabelRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Shared secret"
+
+[node name="SteamSharedSecret" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/SecretRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Optional. If you already have a Steam Guard shared_secret (base64) for a dedicated build account, paste it here and the app generates login codes automatically. Leave empty to type a Steam Guard code once and rely on SteamCMD's cached session."
+placeholder_text = "Optional TOTP shared_secret (base64)"
+secret = true
+
+[node name="ToggleSecretVisible" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/SecretRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Show shared secret"
+theme_type_variation = &"IconButton"
+toggle_mode = true
+icon = ExtResource("5_eye_closed")
+icon_alignment = 1
+
+[node name="RememberSecretRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/SecretRow"]
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Stored as plain text in user://settings.cfg. Leave off to keep the secret only until you quit the app."
+theme_override_constants/separation = 6
+
+[node name="RememberSharedSecret" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/SecretRow/RememberSecretRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"CheckToggle"
+toggle_mode = true
+icon = ExtResource("18_check")
+icon_alignment = 1
+
+[node name="RememberSecretLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/SecretRow/RememberSecretRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Remember"
+
+[node name="LoginRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="LoginSpacer" type="Control" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/LoginRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SteamLoginButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/LoginRow"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Signs in with SteamCMD once so it caches the session for later uploads"
+theme_type_variation = &"PrimaryButton"
+text = "Sign in"
+
+[node name="SetupFooter" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="SetupHint" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SetupFooter"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_type_variation = &"Caption"
+text = ""
+autowrap_mode = 3
+
+[node name="DiscordPage" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 22
+
+[node name="TitleBlock" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TitleRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/TitleBlock"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="DiscordMark" type="TextureRect" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/TitleBlock/TitleRow"]
+custom_minimum_size = Vector2(28, 28)
+layout_mode = 2
+size_flags_vertical = 4
+texture = ExtResource("2_icon")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="DiscordTitle" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/TitleBlock/TitleRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"Heading"
+text = "Discord"
+
+[node name="DiscordSub" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/TitleBlock"]
+layout_mode = 2
+theme_type_variation = &"Muted"
+text = "Chat with other developers publishing Godot games to Steam."
+autowrap_mode = 3
+
+[node name="DiscordCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="DiscordRows" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ServerRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DiscordServerName" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows/ServerRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_type_variation = &"Subheading"
+text = "Discord server"
+text_overrun_behavior = 3
+
+[node name="DiscordOnlineDot" type="Panel" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows/ServerRow"]
+unique_name_in_owner = true
+self_modulate = Color(0.4196, 0.4196, 0.4196, 1)
+custom_minimum_size = Vector2(8, 8)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_type_variation = &"Dot"
+
+[node name="DiscordOnlineLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows/ServerRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"Caption"
+text = "– online"
+
+[node name="Divider" type="Panel" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows"]
+custom_minimum_size = Vector2(0, 1)
+layout_mode = 2
+mouse_filter = 2
+theme_type_variation = &"Divider"
+
+[node name="DiscordMembersScroll" type="ScrollContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 320)
+layout_mode = 2
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 4
+
+[node name="DiscordMembers" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows/DiscordMembersScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="DiscordStatus" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Caption"
+text = "Loading…"
+autowrap_mode = 3
+
+[node name="FooterRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="DiscordJoinButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows/FooterRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+tooltip_text = "Open the invite link in your browser"
+theme_type_variation = &"PrimaryButton"
+disabled = true
+text = "Join server"
+icon = ExtResource("17_external_link")
+icon_alignment = 2
+
+[node name="DiscordRefreshButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/DiscordPage/DiscordCard/DiscordRows/FooterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Fetch the member list again"
+icon = ExtResource("16_reload")
+text = "Fetch"
+
+[node name="ProjectSettings" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout" unique_id=1568203116]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 22
+
+[node name="TitleBlock" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=321898325]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="TitleRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock" unique_id=748571274]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ProjectHeaderButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock/TitleRow" unique_id=298640581]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Click to point this entry at a different project folder"
+theme_type_variation = &"FlatButton"
+
+[node name="HeaderRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock/TitleRow/ProjectHeaderButton" unique_id=102148876]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_right = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="TitleMark" type="TextureRect" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock/TitleRow/ProjectHeaderButton/HeaderRow" unique_id=541553517]
+unique_name_in_owner = true
+texture_filter = 2
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+texture = ExtResource("2_icon")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="ProjectTitle" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock/TitleRow/ProjectHeaderButton/HeaderRow" unique_id=1806168844]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+mouse_filter = 2
+theme_type_variation = &"Heading"
+text = "Project name"
+text_overrun_behavior = 3
+
+[node name="RemoveProjectButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TitleBlock/TitleRow" unique_id=751814096]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Delete from this list (does not touch the project folder)"
+theme_type_variation = &"DangerButton"
+icon = ExtResource("22_remove")
+text = "Delete"
+
+[node name="GodotSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=777687875]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="GodotHeader" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="GodotSectionLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotHeader" unique_id=1478352234]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_type_variation = &"SectionLabel"
+text = "Godot"
+
+[node name="CheckGodotButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotHeader" unique_id=1841323615]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Verify the binary's version. With an empty field this searches /Applications and the Steam library for a matching Godot."
+theme_type_variation = &"FlatButton"
+icon = ExtResource("21_search")
+text = "Detect"
+
+[node name="GodotCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection" unique_id=1819834362]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="GodotRows" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard" unique_id=1241626327]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="StatusRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows" unique_id=2081782987]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="StatusLabelTitle" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/StatusRow" unique_id=554193963]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Status"
+
+[node name="GodotVersionDot" type="Panel" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/StatusRow" unique_id=1368653991]
+unique_name_in_owner = true
+self_modulate = Color(0.4196, 0.4196, 0.4196, 1)
+custom_minimum_size = Vector2(8, 8)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_type_variation = &"Dot"
+
+[node name="GodotVersionLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/StatusRow" unique_id=1545589488]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -555,126 +953,80 @@ theme_type_variation = &"Muted"
 text = "Project requires ?"
 text_overrun_behavior = 3
 
-[node name="ToolsSection" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings"]
+[node name="GodotRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows" unique_id=546847076]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="ToolsSectionLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection"]
-layout_mode = 2
-theme_type_variation = &"SectionLabel"
-text = "SteamCMD"
-
-[node name="ToolsCard" type="PanelContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection"]
-layout_mode = 2
-theme_type_variation = &"Card"
-
-[node name="ToolsRows" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="SteamCmdRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="SteamCmdLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdRow"]
+[node name="GodotLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow"]
 custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
 theme_override_constants/separation = 3
 
-[node name="SteamCmdLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdRow/SteamCmdLabelRow"]
+[node name="GodotLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow/GodotLabelRow"]
 layout_mode = 2
 theme_type_variation = &"FieldLabel"
 text = "Binary"
 
-[node name="Star" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdRow/SteamCmdLabelRow"]
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow/GodotLabelRow"]
 layout_mode = 2
 theme_type_variation = &"RequiredMark"
 text = "*"
 
-[node name="SteamCmdBinary" type="LineEdit" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdRow"]
+[node name="GodotBinary" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow" unique_id=1955140162]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-tooltip_text = "Path to the steamcmd executable, or just 'steamcmd' if it is on your PATH. Shared by all games."
-placeholder_text = "steamcmd or full path"
+placeholder_text = "Empty – use Detect or the folder button"
 
-[node name="BrowseSteamCmdButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdRow"]
+[node name="BrowseGodotButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotCard/GodotRows/GodotRow" unique_id=2057361969]
 unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Pick the steamcmd executable (steamcmd.sh on macOS/Linux, steamcmd.exe on Windows)"
-text = "Browse…"
-
-[node name="DetectSteamCmdButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdRow"]
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Search PATH and common install folders for SteamCMD"
-text = "Detect"
-
-[node name="SteamCmdStatusRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="StatusLabelTitle" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdStatusRow"]
-custom_minimum_size = Vector2(120, 0)
-layout_mode = 2
-theme_type_variation = &"FieldLabel"
-text = "Status"
-
-[node name="SteamCmdDot" type="Panel" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdStatusRow"]
-unique_name_in_owner = true
-self_modulate = Color(0.4314, 0.4157, 0.3843, 1)
-custom_minimum_size = Vector2(8, 8)
+custom_minimum_size = Vector2(24, 24)
 layout_mode = 2
 size_flags_vertical = 4
-mouse_filter = 2
-theme_type_variation = &"Dot"
+tooltip_text = "Pick the Godot executable, or the Godot.app bundle on macOS"
+theme_type_variation = &"IconButton"
+icon = ExtResource("20_folder")
+icon_alignment = 1
 
-[node name="SteamCmdStatusLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdStatusRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-theme_type_variation = &"Muted"
-text = "Not set"
-text_overrun_behavior = 3
-
-[node name="DownloadSteamCmdButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdStatusRow"]
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Downloads Valve's official SteamCMD into this app's data folder and fills in the path"
-text = "Download SteamCMD"
-
-[node name="SteamCmdWebsiteButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ToolsSection/ToolsCard/ToolsRows/SteamCmdStatusRow"]
-unique_name_in_owner = true
-layout_mode = 2
-tooltip_text = "Open the SteamCMD page on the Valve Developer Wiki"
-text = "Website ↗"
-flat = true
-
-[node name="SteamSection" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=1308397288]
+[node name="SteamSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=1308397288]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="SteamSectionLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection" unique_id=1745620767]
+[node name="SteamHeaderRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection"]
 layout_mode = 2
+
+[node name="SteamSectionLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamHeaderRow" unique_id=1745620767]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_type_variation = &"SectionLabel"
 text = "Steam"
 
-[node name="SteamBody" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection" unique_id=1159434317]
+[node name="RefreshHeaderButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamHeaderRow" unique_id=50188126]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Enter the App ID first"
+disabled = true
+theme_type_variation = &"FlatButton"
+icon = ExtResource("16_reload")
+text = "Fetch"
+
+[node name="SteamBody" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection" unique_id=1159434317]
 layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="SteamHeader" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody" unique_id=1563767563]
+[node name="SteamHeader" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody" unique_id=1563767563]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="HeaderFrame" type="Control" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamHeader" unique_id=142473809]
+[node name="HeaderFrame" type="Control" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamHeader" unique_id=142473809]
 unique_name_in_owner = true
+clip_contents = true
 custom_minimum_size = Vector2(100, 150)
 layout_mode = 2
 
-[node name="HeaderImage" type="TextureRect" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamHeader/HeaderFrame" unique_id=12992980]
+[node name="HeaderImage" type="TextureRect" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamHeader/HeaderFrame" unique_id=12992980]
 unique_name_in_owner = true
 texture_filter = 2
 material = SubResource("ShaderMaterial_header")
@@ -686,7 +1038,7 @@ grow_horizontal = 2
 grow_vertical = 2
 expand_mode = 1
 
-[node name="HeaderPlaceholder" type="PanelContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamHeader/HeaderFrame" unique_id=580902439]
+[node name="HeaderPlaceholder" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamHeader/HeaderFrame" unique_id=580902439]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -695,201 +1047,269 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_type_variation = &"Card"
+theme_type_variation = &"CapsulePlaceholder"
 
-[node name="PlaceholderLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamHeader/HeaderFrame/HeaderPlaceholder" unique_id=1774978963]
+[node name="PlaceholderLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamHeader/HeaderFrame/HeaderPlaceholder" unique_id=1774978963]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_vertical = 3
 theme_type_variation = &"Muted"
-text = "No Steam library capsule found for this App ID."
+text = "No Steam capsule found"
 horizontal_alignment = 1
 vertical_alignment = 1
 autowrap_mode = 3
+clip_text = true
+text_overrun_behavior = 3
 
-[node name="SteamCard" type="PanelContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody" unique_id=612321751]
+[node name="SteamCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody" unique_id=612321751]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 0
 theme_type_variation = &"Card"
 
-[node name="SteamRows" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard" unique_id=1261530486]
+[node name="SteamRows" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard" unique_id=1261530486]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="AppIdRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows" unique_id=689999537]
+[node name="AppIdRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows" unique_id=689999537]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="AppIdLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/AppIdRow"]
-custom_minimum_size = Vector2(120, 0)
+[node name="AppIdLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/AppIdRow"]
+custom_minimum_size = Vector2(160, 0)
 layout_mode = 2
 theme_override_constants/separation = 3
 
-[node name="AppIdLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/AppIdRow/AppIdLabelRow"]
+[node name="AppIdLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/AppIdRow/AppIdLabelRow"]
 layout_mode = 2
 theme_type_variation = &"FieldLabel"
 text = "App ID"
 
-[node name="Star" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/AppIdRow/AppIdLabelRow"]
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/AppIdRow/AppIdLabelRow"]
 layout_mode = 2
 theme_type_variation = &"RequiredMark"
 text = "*"
 
-[node name="AppId" type="LineEdit" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/AppIdRow" unique_id=526052515]
+[node name="AppId" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/AppIdRow" unique_id=526052515]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 placeholder_text = "2807130"
 
-[node name="BranchRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows" unique_id=831443721]
+[node name="BranchRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows" unique_id=831443721]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="BranchLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/BranchRow" unique_id=1560891060]
-custom_minimum_size = Vector2(120, 0)
+[node name="BranchLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/BranchRow"]
+custom_minimum_size = Vector2(160, 0)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="BranchLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/BranchRow/BranchLabelRow" unique_id=1560891060]
 layout_mode = 2
 theme_type_variation = &"FieldLabel"
 text = "Set live on branch"
 
-[node name="Branch" type="LineEdit" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/BranchRow" unique_id=2124692369]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-placeholder_text = "beta   (leave empty to upload without setting live)"
-
-[node name="HeaderMeta" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows" unique_id=1726416811]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="CapsuleLabel" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/HeaderMeta" unique_id=1568383638]
-custom_minimum_size = Vector2(120, 0)
-layout_mode = 2
-theme_type_variation = &"FieldLabel"
-text = "Library capsule"
-
-[node name="HeaderCaption" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/HeaderMeta" unique_id=1634512425]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-theme_type_variation = &"Caption"
-text = "600x900 store artwork"
-text_overrun_behavior = 3
-
-[node name="RefreshHeaderButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/HeaderMeta" unique_id=50188126]
+[node name="BuildsPageButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/BranchRow/BranchLabelRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 4
-tooltip_text = "Re-download the library capsule from Steam"
-theme_type_variation = &"FlatButton"
-text = "Refresh"
+tooltip_text = "Enter the App ID first"
+disabled = true
+theme_type_variation = &"IconButton"
+icon = ExtResource("17_external_link")
+icon_alignment = 1
 
-[node name="DepotsSection" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=1391297409]
+[node name="Branch" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/SteamSection/SteamBody/SteamCard/SteamRows/BranchRow" unique_id=2124692369]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "beta (optional)"
+
+[node name="DepotsSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=1391297409]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="DepotsHeader" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection" unique_id=1739435600]
+[node name="DepotsHeader" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection" unique_id=1739435600]
 layout_mode = 2
 
-[node name="DepotsTitle" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsHeader" unique_id=1979703839]
+[node name="DepotsTitle" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsHeader" unique_id=1979703839]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"SectionLabel"
 text = "Depots"
 
-[node name="FetchDepotsButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsHeader"]
+[node name="FetchDepotsButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsHeader"]
 unique_name_in_owner = true
 layout_mode = 2
-tooltip_text = "Ask Steam for this App ID's depots (uses your SteamCMD login)"
+tooltip_text = "Ask Steam for this App ID's depots. Works without signing in for released apps; unreleased apps need your SteamCMD login."
 theme_type_variation = &"FlatButton"
-text = "↓  Fetch depots"
+icon = ExtResource("16_reload")
+text = "Fetch"
 
-[node name="AddDepotButton" type="Button" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsHeader" unique_id=703644302]
+[node name="AddDepotButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsHeader" unique_id=703644302]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 24)
 layout_mode = 2
-tooltip_text = "One depot per export preset"
-theme_type_variation = &"FlatButton"
-text = "+  Add depot"
+tooltip_text = "Add a depot (one per export preset)"
+theme_type_variation = &"IconButton"
+icon = ExtResource("8_add")
+icon_alignment = 1
 
-[node name="DepotsCard" type="PanelContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection" unique_id=742372761]
+[node name="DepotsCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection" unique_id=742372761]
 layout_mode = 2
 theme_type_variation = &"Card"
 
-[node name="DepotsLayout" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard" unique_id=1683765942]
+[node name="DepotsLayout" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard" unique_id=1683765942]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="DepotColumns" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout" unique_id=424574609]
+[node name="DepotColumns" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout" unique_id=424574609]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="ColPresetRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns"]
+[node name="ColPresetRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns"]
+unique_name_in_owner = true
 size_flags_horizontal = 3
 size_flags_stretch_ratio = 1.6
 layout_mode = 2
 theme_override_constants/separation = 3
 
-[node name="ColPreset" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColPresetRow"]
+[node name="ColPreset" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColPresetRow"]
 layout_mode = 2
 theme_type_variation = &"Caption"
 text = "Export preset"
 
-[node name="Star" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColPresetRow"]
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColPresetRow"]
 layout_mode = 2
 theme_type_variation = &"RequiredMark"
 text = "*"
 
-[node name="ColDepotRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns"]
+[node name="ColFolderRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(88, 0)
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 2.9
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="ColFolder" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColFolderRow"]
+layout_mode = 2
+theme_type_variation = &"Caption"
+text = "Folder"
+
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColFolderRow"]
+layout_mode = 2
+theme_type_variation = &"RequiredMark"
+text = "*"
+
+[node name="ColDepotRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns"]
 custom_minimum_size = Vector2(64, 0)
 size_flags_horizontal = 3
 layout_mode = 2
 theme_override_constants/separation = 3
 
-[node name="ColDepot" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColDepotRow"]
+[node name="ColDepot" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColDepotRow"]
 layout_mode = 2
 theme_type_variation = &"Caption"
 text = "Depot ID"
 
-[node name="Star" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColDepotRow"]
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColDepotRow"]
 layout_mode = 2
 theme_type_variation = &"RequiredMark"
 text = "*"
 
-[node name="ColOutputRow" type="HBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns"]
+[node name="DepotsPageButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColDepotRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Enter the App ID first"
+disabled = true
+theme_type_variation = &"IconButton"
+icon = ExtResource("17_external_link")
+icon_alignment = 1
+
+[node name="ColOutputRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(88, 0)
 size_flags_horizontal = 3
 size_flags_stretch_ratio = 1.3
 layout_mode = 2
 theme_override_constants/separation = 3
 
-[node name="ColOutput" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColOutputRow"]
+[node name="ColOutput" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColOutputRow"]
 layout_mode = 2
 theme_type_variation = &"Caption"
-text = "Export file"
+text = "Executable"
 
-[node name="Star" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColOutputRow"]
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColOutputRow"]
 layout_mode = 2
 theme_type_variation = &"RequiredMark"
 text = "*"
 
-[node name="ColRemove" type="Control" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns" unique_id=1230423869]
+[node name="InstallationGeneralButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColOutputRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Enter the App ID first"
+disabled = true
+theme_type_variation = &"IconButton"
+icon = ExtResource("17_external_link")
+icon_alignment = 1
+
+[node name="ColRemove" type="Control" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns" unique_id=1230423869]
 custom_minimum_size = Vector2(28, 0)
 layout_mode = 2
 
-[node name="DepotsEmpty" type="Label" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout" unique_id=454659111]
+[node name="DepotsEmpty" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout" unique_id=454659111]
 unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"Caption"
 text = "No depots yet. Add one row per export preset – Steam needs at least one."
 text_overrun_behavior = 3
 
-[node name="DepotRows" type="VBoxContainer" parent="Layout/Content/MainView/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout" unique_id=539542032]
+[node name="DepotRows" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout" unique_id=539542032]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 6
 
+[node name="DepotsHintRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DepotsHint" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsHintRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"Caption"
+autowrap_mode = 3
+
+[node name="TopFade" type="TextureRect" parent="Layout/Content/MainView/ScrollFrame"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+size_flags_vertical = 0
+mouse_filter = 2
+texture = SubResource("GradientTexture2D_fade")
+expand_mode = 1
+stretch_mode = 1
+
+[node name="BottomFade" type="TextureRect" parent="Layout/Content/MainView/ScrollFrame"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+size_flags_vertical = 8
+mouse_filter = 2
+texture = SubResource("GradientTexture2D_fade")
+expand_mode = 1
+stretch_mode = 1
+flip_v = true
+
 [node name="ComposerMargin" type="MarginContainer" parent="Layout/Content/MainView" unique_id=53964069]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/margin_left = 28
 theme_override_constants/margin_top = 4
@@ -934,7 +1354,8 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 4
 theme_type_variation = &"IconButton"
-text = "✕"
+icon = ExtResource("14_close")
+icon_alignment = 1
 
 [node name="Composer" type="PanelContainer" parent="Layout/Content/MainView/ComposerMargin/ComposerBox" unique_id=852496570]
 layout_mode = 2
@@ -951,76 +1372,108 @@ layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 4
 theme_type_variation = &"GhostField"
+tooltip_text = "Optional. Shown as the build description in Steamworks, e.g. v1.0.3 – fixed save bug. Sent with this build and cleared afterwards; it comes back if the run fails or is cancelled."
 theme_override_font_sizes/font_size = 13
-placeholder_text = "Describe this build…  e.g. v1.0.3 – fixed save bug"
+placeholder_text = "Describe this build… (optional)"
 
 [node name="BuildPublishButton" type="Button" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/Composer/ComposerRow" unique_id=497475138]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 36)
+custom_minimum_size = Vector2(36, 36)
 layout_mode = 2
 size_flags_vertical = 4
-theme_type_variation = &"PrimaryButton"
-text = "Build & Publish"
+tooltip_text = "Build & Publish (Enter)"
+theme_type_variation = &"IconButton"
+icon = ExtResource("13_main_play")
+icon_alignment = 1
 
-[node name="ConsolePanel" type="PanelContainer" parent="Layout/Content" unique_id=220415929]
+[node name="ConsoleDock" type="MarginContainer" parent="Layout/Content" unique_id=1587293410]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(360, 0)
 layout_mode = 2
 size_flags_vertical = 3
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="ConsolePanel" type="PanelContainer" parent="Layout/Content/ConsoleDock" unique_id=220415929]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
 theme_type_variation = &"ConsolePanel"
 
-[node name="ConsoleLayout" type="VBoxContainer" parent="Layout/Content/ConsolePanel" unique_id=1105802201]
+[node name="ConsoleLayout" type="VBoxContainer" parent="Layout/Content/ConsoleDock/ConsolePanel" unique_id=1105802201]
 layout_mode = 2
 theme_override_constants/separation = 0
 
-[node name="ConsoleHeader" type="MarginContainer" parent="Layout/Content/ConsolePanel/ConsoleLayout" unique_id=54007188]
+[node name="ConsoleHeader" type="MarginContainer" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout" unique_id=54007188]
 layout_mode = 2
-theme_override_constants/margin_left = 14
+theme_override_constants/margin_left = 16
 theme_override_constants/margin_top = 10
-theme_override_constants/margin_right = 8
+theme_override_constants/margin_right = 10
 theme_override_constants/margin_bottom = 8
 
-[node name="ConsoleHeaderRow" type="HBoxContainer" parent="Layout/Content/ConsolePanel/ConsoleLayout/ConsoleHeader" unique_id=1912594724]
+[node name="ConsoleHeaderRow" type="HBoxContainer" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout/ConsoleHeader" unique_id=1912594724]
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 2
 
-[node name="ConsoleTitle" type="Label" parent="Layout/Content/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow" unique_id=781271865]
+[node name="ConsoleTitle" type="Label" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow" unique_id=781271865]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_type_variation = &"FieldLabel"
+theme_type_variation = &"ConsoleTitle"
 text = "Console"
 
-[node name="ClearConsoleButton" type="Button" parent="Layout/Content/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow" unique_id=738851578]
+[node name="CopyConsoleButton" type="Button" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow" unique_id=1663920571]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Copy all output"
+theme_type_variation = &"FlatButton"
+text = "Copy"
+
+[node name="ClearConsoleButton" type="Button" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow" unique_id=738851578]
 unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"FlatButton"
 text = "Clear"
 
-[node name="HideConsoleButton" type="Button" parent="Layout/Content/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow" unique_id=809892602]
+[node name="AutoScrollButton" type="Button" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow" unique_id=1907442163]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Auto-scroll: on"
+theme_type_variation = &"IconButton"
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("15_arrow_down")
+icon_alignment = 1
+
+[node name="ExpandConsoleButton" type="Button" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Expand console"
+theme_type_variation = &"IconButton"
+toggle_mode = true
+icon = ExtResource("23_distraction_free")
+icon_alignment = 1
+
+[node name="HideConsoleButton" type="Button" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow" unique_id=809892602]
 unique_name_in_owner = true
 layout_mode = 2
 tooltip_text = "Hide console"
 theme_type_variation = &"IconButton"
-text = "✕"
+icon = ExtResource("14_close")
+icon_alignment = 1
 
-[node name="ConsoleSeparator" type="HSeparator" parent="Layout/Content/ConsolePanel/ConsoleLayout" unique_id=1914130000]
+[node name="ConsoleSeparator" type="HSeparator" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout" unique_id=1914130000]
 layout_mode = 2
 
-[node name="ConsoleScroll" type="ScrollContainer" parent="Layout/Content/ConsolePanel/ConsoleLayout" unique_id=511062663]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_vertical = 3
-horizontal_scroll_mode = 0
-
-[node name="Console" type="RichTextLabel" parent="Layout/Content/ConsolePanel/ConsoleLayout/ConsoleScroll" unique_id=1863132086]
+[node name="Console" type="RichTextLabel" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout" unique_id=1863132086]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 focus_mode = 2
+theme_type_variation = &"ConsoleBody"
 bbcode_enabled = true
-fit_content = true
-scroll_active = false
 selection_enabled = true
 
 [node name="ProjectDialog" type="FileDialog" parent="." unique_id=760070868]
@@ -1050,9 +1503,26 @@ file_mode = 0
 access = 2
 use_native_dialog = true
 
+[node name="DepotFolderDialog" type="FileDialog" parent="."]
+unique_name_in_owner = true
+title = "Choose the depot's content folder"
+size = Vector2i(800, 560)
+ok_button_text = "Select"
+file_mode = 2
+access = 2
+use_native_dialog = true
+
 [node name="SteamAssets" type="Node" parent="." unique_id=397512461]
 unique_name_in_owner = true
 script = ExtResource("3_steam_assets")
+
+[node name="SteamProfile" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("6_steam_profile")
+
+[node name="DiscordWidget" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("8_discord_widget")
 
 [node name="HeaderDebounce" type="Timer" parent="." unique_id=1366639030]
 unique_name_in_owner = true

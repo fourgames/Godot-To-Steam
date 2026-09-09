@@ -1,7 +1,7 @@
 class_name ProjectIcons
 extends RefCounted
 ## Resolves and loads the icon of a *foreign* Godot project (one that is not
-## this app) from its project.godot, so every game in the sidebar shows its
+## this app) from its project.godot, so every app in the sidebar shows its
 ## own icon. Textures are cached per project path because the sidebar is
 ## rebuilt often.
 

@@ -1,5 +1,5 @@
 extends Node
-## Fetches a game's Steam library capsule (600x900 portrait, 2x when available)
+## Fetches an app's Steam library capsule (600x900 portrait, 2x when available)
 ## for an App ID and caches it in memory and on disk
 ## (user://steam_assets/<app_id>/library_600x900.jpg).
 ##

@@ -6,9 +6,11 @@ used under the MIT license:
 
 | File | Godot source |
 |---|---|
+| `action_copy.svg` | `ActionCopy.svg` |
 | `add.svg` | `Add.svg` |
 | `arrow_down.svg` | `ArrowDown.svg` |
 | `asset_store.svg` | `AssetStore.svg` |
+| `clear.svg` | `Clear.svg` |
 | `close.svg` | `Close.svg` |
 | `distraction_free.svg` | `DistractionFree.svg` |
 | `external_link.svg` | `ExternalLink.svg` |

@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="Godot to Steam"
+config/name="Godot To Steam"
 run/main_scene="uid://ccwbs581hfimh"
 config/features=PackedStringArray("4.7", "Forward Plus")
 boot_splash/bg_color=Color(0.08235, 0.08235, 0.08235, 1)

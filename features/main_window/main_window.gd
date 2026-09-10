@@ -46,11 +46,15 @@ const ICON_FOLDER := preload("res://public/icons/editor/folder.svg")
 ## Console header: copy icon, swapped for a check mark briefly after copying.
 const ICON_COPY := preload("res://public/icons/editor/action_copy.svg")
 const ICON_CHECK := preload("res://public/icons/editor/import_check.svg")
+## The copy button puts a redacted support report on the clipboard (see
+## _diagnostics_report), with at most this many console lines.
+const COPY_TOOLTIP := "Copy the console and your setup, ready to paste to an AI or on Discord (passwords, secrets, your Steam account name and home folder are removed)"
+const REPORT_CONSOLE_LINES := 5000
 const BUILD_TOOLTIP := "Build and publish (Enter)"
 const STOP_TOOLTIP := "Stop what is running"
 
 
-## App name from project.godot, so console and welcome text follow it.
+## App name from project.godot, so console and diagnostics text follow it.
 static func _app_name() -> String:
 	return str(ProjectSettings.get_setting("application/config/name", "Godot To Steam"))
 
@@ -60,9 +64,11 @@ static func _app_name() -> String:
 const MIN_WINDOW_SIZE := Vector2i(500, 340)
 
 ## How far (logical points) the cursor has to be pulled past the point where
-## the console divider stops moving before the console expands or closes.
-## Keeps a small nudge at the edge from flipping the layout (see _input).
-const SPLIT_OVERSHOOT := 120.0
+## the console divider stops moving before the console expands or closes. It
+## stops at the console's minimum on one side and the main view's real minimum
+## on the other. Half the console's 360 px minimum width, so a small nudge at
+## the edge does not flip the layout (see _input).
+const SPLIT_OVERSHOOT := 180.0
 
 ## How far (logical points) the sidebar can be dragged past its minimum
 ## width. Its minimum is the 260 px set on the Sidebar node in the scene,
@@ -71,7 +77,7 @@ const SPLIT_OVERSHOOT := 120.0
 ## Note that Layout's split_offset is the sidebar width in pixels, not the
 ## extra past the minimum: the Sidebar does not expand, so the splitter's
 ## default dragger position is 0 (see _clamp_sidebar_split).
-const SIDEBAR_MAX_EXTRA := 80.0
+const SIDEBAR_MAX_EXTRA := 160.0
 
 ## macOS: height of the (now transparent) title bar in logical points. The
 ## sidebar reserves this much room above its nav so the traffic-light buttons
@@ -88,7 +94,8 @@ var _console_expanded := false
 ## the divider does not end up parked at the main view's minimum width.
 var _split_offset_before_expand := 0
 ## True while the user drags the divider between the main view and the
-## console. Overshooting the console's minimum width closes it (see _input).
+## console. Overshooting the console's minimum width closes it; overshooting
+## the main view's minimum expands it (see _input).
 var _console_splitter_dragging := false
 
 # Console / status colours (bbcode + Color). Muted to match the ConsoleBody
@@ -100,12 +107,15 @@ const COLOR_CMD_BG := "#7fb6e014"  # translucent pill behind a "$ command" line
 const COLOR_OK := "#86c29a"
 const COLOR_WARN := "#d9a64a"
 const COLOR_ERR := "#e07b72"
-const COLOR_STAMP := "#525252"
+const COLOR_STAMP := "#808080"
 const COLOR_GUTTER := "#333333"  # "│" bar on lines inside a step block
 const COLOR_GUTTER_ERR := "#d9a64a8c"  # same bar, tinted for stderr lines
 const COLOR_TEXT := "#ececec"
 const COLOR_TEXT_2 := "#a3a3a3"
-const COLOR_MUTED := "#6b6b6b"
+const COLOR_MUTED := "#8a8a8a"  # >= 4.5:1 on the app and card backgrounds (WCAG AA)
+
+## Banner text for a folder app until the user closes it for that app.
+const FOLDER_APP_NOTICE := "No project.godot found — this app is treated as a content folder, so every file inside is uploaded to its depot as-is. Use this for manual builds from other engines, soundtracks, or DLC; add a launch option in Steamworks only if this app should launch something."
 
 ## Step block state: log_step() opens a block, log_step_done() closes it with a
 ## ✓/✗ line. Lines logged in between get a "│" gutter.
@@ -141,6 +151,10 @@ var _auto_fetch_pending := false
 ## True while _fetch_depots owns the busy state. Delete stays enabled then:
 ## removing the app cancels its fetch (see _on_remove_project_pressed).
 var _fetching_depots := false
+## App ID → PackedStringArray of the depot IDs Steam listed for it this
+## session (SteamAppInfo.uploadable_depot_ids). Only non-empty answers are
+## kept; Build & Publish skips its depot check when they cover every row.
+var _steam_depot_ids: Dictionary = {}
 var _project_button_group := ButtonGroup.new()
 ## Discord widget: invite link from the last answer and when it was fetched.
 var _discord_invite := ""
@@ -151,9 +165,13 @@ var _is_busy := false
 var _preset_names: PackedStringArray
 ## Platform of each entry in _preset_names, as written in export_presets.cfg.
 var _preset_platforms: PackedStringArray
-## True once _check_godot_version found a binary matching the project. While
-## false the banner shows a Godot problem, which outranks depot warnings.
-var _godot_ok := false
+## Godot problem _check_godot_version found for the selected app
+## ({ "text", "color" }), or empty when the binary is fine or still probing.
+var _godot_status := {}
+## Leading fix from the last failed run of the selected app, or empty.
+var _run_status := {}
+## Banner texts the user closed while on this app; a changed text shows again.
+var _dismissed_banners := {}
 ## binary path -> { "version": String, "mtime": int }. Probing a Godot binary
 ## launches it (it bounces in the Dock), so each one is probed once and the
 ## answer is kept until the file changes.
@@ -165,6 +183,8 @@ var _probe_serial := 0
 ## Theme variations that draw a red border around a field that failed validation.
 const ERROR_FIELD := &"ErrorField"
 const ERROR_OPTION := &"ErrorOption"
+## App and depot IDs are 32-bit, so never longer than this.
+const ID_MAX_DIGITS := 10
 ## depot index -> { "preset": true, "depot_id": true, "output": true } for the
 ## depot fields marked red at the last submit. Rows are rebuilt from data, so
 ## the marks live here rather than on the controls.
@@ -205,9 +225,46 @@ var _password_sent := false
 ## Set when the child printed GUARD_WAIT_PROMPT: SteamCMD sent a push to the
 ## Steam mobile app and is polling Steam for the approval.
 var _guard_wait_seen := false
+## Tool whose output the running child streams (KnownIssues.STEAMCMD,
+## KnownIssues.GODOT or "") and the KnownIssues ids its output matched so
+## far. Reset per process like the guard flags above.
+var _child_tool := ""
+var _seen_issues := PackedStringArray()
+## Save targets whose last save failed, so the error is logged once per file
+## until a save works again (see _report_save).
+var _failed_saves: Dictionary = {}
+## Remembered secrets as last written to the OS credential store (SecretStore
+## name -> value), so unchanged values are not written again. A write runs on
+## _secret_thread; a request that comes in meanwhile sets _secrets_dirty and
+## runs once that write is done.
+var _stored_secrets: Dictionary = {}
+var _secret_thread: Thread
+var _secrets_dirty := false
+## Set while the last secret write failed, so the warning is logged once.
+var _secret_write_failed := false
+
+## Next steps logged when a failed run printed nothing KnownIssues recognises.
+const STEAMCMD_FALLBACK := "Scroll up to the first line from SteamCMD that says FAILED or ERROR for the reason. If it does not make sense, press the copy button in the console header and paste the result to an AI or on Discord."
+const EXPORT_FALLBACK := "Scroll up to Godot's first ERROR line for the reason. To see the full message, open the project in Godot and export the same preset from Project → Export…. If it still does not make sense, press the copy button in the console header and paste the result to an AI or on Discord."
+## No new byte for this long ends the SteamCMD download as stalled.
+const DOWNLOAD_STALL_MS := 30000
+## Build & Publish warns (without blocking) below this much free disk space.
+const LOW_DISK_BYTES := 1 << 30
+## File names Windows refuses regardless of extension.
+const WINDOWS_RESERVED_NAMES: PackedStringArray = [
+	"CON", "PRN", "AUX", "NUL",
+	"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+	"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+]
+## Characters no desktop OS accepts in a file name (Windows is the strictest).
+const ILLEGAL_FILE_CHARS := ["/", "\\", "<", ">", ":", "\"", "|", "?", "*"]
 ## Prompt SteamCMD prints (without a trailing newline) when no cached
-## session exists and no password was given on the command line.
+## session exists. The password is never passed on the command line, where
+## other processes could read it, so this is how SteamCMD gets it.
 const PASSWORD_PROMPT := "password:"
+## SecretStore names of the remembered secrets.
+const SECRET_PASSWORD := "steam_password"
+const SECRET_SHARED_SECRET := "steam_shared_secret"
 ## Prompts SteamCMD prints (without a trailing newline) when it needs a code.
 const GUARD_PROMPTS := ["steam guard code:", "two-factor code:", "enter the current code"]
 ## Line SteamCMD prints while it waits for the login to be approved in the
@@ -251,6 +308,7 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_on_window_resized)
 	%ContentMargin.minimum_size_changed.connect(_on_window_resized)
 	%ComposerMargin.minimum_size_changed.connect(_on_window_resized)
+	%ProjectHeaderMargin.minimum_size_changed.connect(_on_window_resized)
 	_on_window_resized()
 	%AddAppButton.pressed.connect(_on_new_app_pressed)
 	%NewAppButton.pressed.connect(_on_new_app_pressed)
@@ -269,8 +327,6 @@ func _ready() -> void:
 	%DiscordWidget.widget_ready.connect(_on_discord_widget_ready)
 	%DiscordWidget.widget_failed.connect(_on_discord_widget_failed)
 	%DiscordWidget.avatar_ready.connect(_on_discord_avatar_ready)
-	%DismissBannerButton.pressed.connect(func() -> void: %StatusBanner.visible = false)
-	%DismissDepotsWarningButton.pressed.connect(func() -> void: %DepotsWarning.visible = false)
 	%ProjectHeaderButton.pressed.connect(_on_browse_pressed)
 	%RemoveProjectButton.pressed.connect(_on_remove_project_pressed)
 	%ProjectDialog.dir_selected.connect(_on_project_dir_selected)
@@ -313,6 +369,7 @@ func _ready() -> void:
 		_set_field_error(%GodotBinary, false)
 	)
 	%AppId.text_changed.connect(func(t: String) -> void:
+		t = _digits_only(%AppId, t)
 		_commit_field("app_id", t)
 		_set_field_error(%AppId, false)
 		_refresh_installation_link()
@@ -336,12 +393,23 @@ func _ready() -> void:
 		_set_field_error(%SteamUsername, false)
 		_refresh_setup_state()
 	)
-	%SteamPassword.text_changed.connect(func(_t: String) -> void: _save_settings())
+	%SteamPassword.text_changed.connect(func(_t: String) -> void:
+		_save_settings()
+		_set_field_error(%SteamPassword, false)
+	)
 	%SteamSharedSecret.text_changed.connect(func(_t: String) -> void:
 		_save_settings()
+		_set_field_error(%SteamSharedSecret, false)
 		_update_steam_header()
 	)
-	%RememberPassword.toggled.connect(func(_on: bool) -> void: _save_settings())
+	%RememberPassword.toggled.connect(func(_on: bool) -> void:
+		_save_settings()
+		_persist_secrets()
+	)
+	# Secrets are written when the field is left, not per keystroke: a
+	# credential store round trip can take a second (PowerShell on Windows).
+	%SteamPassword.focus_exited.connect(_persist_secrets)
+	%SteamSharedSecret.focus_exited.connect(_persist_secrets)
 	%SteamGuardCode.text_submitted.connect(func(_t: String) -> void:
 		if _awaiting_guard_code:
 			_submit_guard_code()
@@ -349,7 +417,10 @@ func _ready() -> void:
 			_on_steam_login_pressed()
 	)
 	%SteamGuardCode.text_changed.connect(func(_t: String) -> void: _set_field_error(%SteamGuardCode, false))
-	%RememberSharedSecret.toggled.connect(func(_on: bool) -> void: _save_settings())
+	%RememberSharedSecret.toggled.connect(func(_on: bool) -> void:
+		_save_settings()
+		_persist_secrets()
+	)
 	_bind_secret_toggle(%TogglePasswordVisible, %SteamPassword, "password")
 	_bind_secret_toggle(%ToggleSecretVisible, %SteamSharedSecret, "shared secret")
 
@@ -359,6 +430,7 @@ func _ready() -> void:
 	_steamcmd_http.request_completed.connect(_on_steamcmd_download_completed)
 	add_child(_steamcmd_http)
 
+	_apply_secret_store_state()
 	_load_settings()
 	_auto_detect_steamcmd()
 	_drop_line = Panel.new()
@@ -375,7 +447,27 @@ func _ready() -> void:
 	_show_project(-1)
 	_update_totp_status()
 	_refresh_setup_state()
+	# Checkbox-style toggles whose "Remember" label is a separate node.
+	%RememberPassword.accessibility_name = "Remember password"
+	%RememberSharedSecret.accessibility_name = "Remember shared secret"
+	%StatusBanner.get_node("BannerRow/DismissBannerButton").accessibility_name = "Dismiss message"
+	_name_unlabeled_controls(self)
 	log_line("%s ready." % _app_name(), COLOR_OK)
+
+
+## Screen readers (AccessKit) announce a control by its accessibility_name.
+## Icon-only buttons and fields without a label next to them in the tree have
+## none, so they get their tooltip (or placeholder) text. Names set
+## explicitly, like the ones the row builders give, are left alone.
+func _name_unlabeled_controls(root: Node) -> void:
+	for node in root.find_children("*", "Control", true, false):
+		var c := node as Control
+		if not c.accessibility_name.is_empty():
+			continue
+		if c is Button and (c as Button).text.is_empty():
+			c.accessibility_name = c.tooltip_text
+		elif c is LineEdit:
+			c.accessibility_name = c.tooltip_text if not c.tooltip_text.is_empty() else (c as LineEdit).placeholder_text
 
 
 ## Render the UI at the OS scale factor so it is the same physical size on a
@@ -482,6 +574,10 @@ func _apply_console_visibility() -> void:
 	var fits := _console_fits(expanded)
 	%ConsoleDock.visible = _console_wanted and fits
 	%MainView.visible = not (expanded and fits)
+	# Give the main view its real minimum while the console sits beside it, so
+	# the divider stops there and window shrinks narrow the console first.
+	var beside: bool = %ConsoleDock.visible and %MainView.visible
+	%MainView.custom_minimum_size.x = _main_view_min_width() if beside else 0.0
 	%ExpandConsoleButton.set_pressed_no_signal(_console_expanded)
 	%ExpandConsoleButton.tooltip_text = "Restore layout" if _console_expanded else "Expand console"
 	%ConsoleToggle.disabled = not fits
@@ -513,18 +609,38 @@ func _on_browse_pressed() -> void:
 	%ProjectDialog.popup_centered()
 
 
+## Asks first: removing forgets the app's App ID, branch and depot rows.
 func _on_remove_project_pressed() -> void:
 	if _selected_index < 0:
 		return
-	if _is_busy and _fetching_depots:
+	var p := _projects[_selected_index]
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Remove app"
+	dialog.dialog_text = "Remove '%s' from the list?\n\nIts App ID, branch and depot rows are forgotten. Nothing is deleted on disk or on Steam." % p["name"]
+	dialog.ok_button_text = "Remove"
+	dialog.confirmed.connect(_remove_project.bind(p))
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
+	add_child(dialog)
+	dialog.popup_centered()
+
+
+func _remove_project(p: Dictionary) -> void:
+	var index := -1
+	for i in _projects.size():
+		if is_same(_projects[i], p):
+			index = i
+	if index < 0:
+		return
+	if index == _selected_index and _is_busy and _fetching_depots:
 		# The fetch belongs to the app being removed. Cancelling here sets
 		# _cancel_requested before _fetch_depots resumes, so its
 		# _bail_if_cancelled() returns early and nothing is merged into
 		# whatever is selected afterwards.
 		_auto_fetch_pending = false
 		_cancel_running()
-	log_line("Removed %s from the list." % _projects[_selected_index]["name"], COLOR_WARN)
-	_projects.remove_at(_selected_index)
+	log_line("Removed %s from the list." % p["name"], COLOR_WARN)
+	_projects.remove_at(index)
 	_save_projects()
 	_rebuild_sidebar()
 	_show_project(-1)
@@ -538,6 +654,12 @@ func _on_project_dir_selected(dir: String) -> void:
 	var is_godot := FileAccess.file_exists(dir.path_join("project.godot"))
 
 	var is_browse: bool = %ProjectDialog.get_meta("browse", false)
+	var same_folder := _project_index_for_path(dir)
+	if same_folder >= 0 and not (is_browse and same_folder == _selected_index):
+		# Allowed on purpose: a demo or playtest can ship from the same project
+		# under its own App ID. Said out loud so a double-add is easy to spot.
+		log_line("'%s' already uses %s. Both entries upload separately, which is right for a demo or playtest with its own App ID; otherwise remove one of them." % [_projects[same_folder]["name"], dir], COLOR_WARN)
+
 	if is_browse and _selected_index >= 0:
 		var p := _projects[_selected_index]
 		if _is_folder_app(p) == is_godot:
@@ -587,6 +709,14 @@ func _on_project_dir_selected(dir: String) -> void:
 		_finish_add_project()
 
 
+## Index of the app whose folder is [param dir], or -1.
+func _project_index_for_path(dir: String) -> int:
+	for i in _projects.size():
+		if str(_projects[i]["path"]).simplify_path().rstrip("/") == dir:
+			return i
+	return -1
+
+
 ## Shared tail of adding or re-pointing the selected app: drop cached lookups
 ## for its name, persist, and show it.
 func _finish_add_project() -> void:
@@ -616,6 +746,12 @@ func _on_app_id_found(project_name: String, app_id: String) -> void:
 	if app_id.is_empty():
 		log_line("No Steam app is named exactly '%s'; enter the App ID by hand." % project_name, COLOR_INFO)
 		return
+	# A second entry for the same project (a demo, a playtest) must not inherit
+	# the main game's App ID, or its build would be uploaded to the wrong app.
+	for other in _projects:
+		if str(other.get("app_id", "")).strip_edges() == app_id:
+			log_line("Steam lists '%s' as App %s, but '%s' already uses that App ID. Enter this app's own App ID by hand." % [project_name, app_id, other["name"]], COLOR_INFO)
+			return
 	for i in _projects.size():
 		var p := _projects[i]
 		if p["name"] != project_name:
@@ -632,6 +768,7 @@ func _on_app_id_found(project_name: String, app_id: String) -> void:
 			_refresh_installation_link()
 			_refresh_steam_header(false)
 			_maybe_auto_fetch_depots(app_id)
+		break  # One App ID belongs to one entry (see the check above).
 	_save_projects()
 
 
@@ -653,6 +790,7 @@ func _make_project_row(index: int, p: Dictionary) -> Button:
 	btn.toggle_mode = true
 	btn.button_group = _project_button_group
 	btn.tooltip_text = p["path"]
+	btn.accessibility_name = p["name"]
 	btn.custom_minimum_size.y = 34
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.button_pressed = (index == _selected_index)
@@ -691,7 +829,14 @@ func _make_project_row(index: int, p: Dictionary) -> Button:
 
 	var version := Label.new()
 	version.theme_type_variation = &"Caption"
-	version.text = "Folder" if _is_folder_app(p) else _read_required_godot_version(p["path"])
+	if _is_folder_app(p):
+		version.text = "Folder"
+	elif not _project_file_exists(p):
+		version.text = "Missing"
+		version.add_theme_color_override("font_color", Color(COLOR_WARN))
+		btn.tooltip_text = "Project not found at %s – select it and click its name to point at the new location" % p["path"]
+	else:
+		version.text = _read_required_godot_version(p["path"])
 	version.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(version)
 	return btn
@@ -746,6 +891,35 @@ func _drop_on_row(at: Vector2, data: Variant, btn: Button) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_DRAG_END and _drop_line != null:
 		_drop_line.visible = false
+	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_stop_children_for_quit()
+		_flush_secrets()
+
+
+func _exit_tree() -> void:
+	_stop_children_for_quit()  # Quit paths that skip the close request.
+	# The fields have left the tree already (their %names no longer resolve),
+	# so only a running secret write is waited for; the close request flushed.
+	_secrets_dirty = false
+	_finish_secret_write()
+
+
+## Closing the window while something runs stops it without asking: the
+## child (and everything it started) is killed so no SteamCMD or Godot keeps
+## running without a window, a partial SteamCMD download is removed and the
+## pipe readers are joined. Safe to call more than once.
+func _stop_children_for_quit() -> void:
+	_kill_child()
+	if _steamcmd_downloading and is_instance_valid(_steamcmd_http):
+		_steamcmd_http.cancel_request()
+		_steamcmd_downloading = false
+		if not _steamcmd_archive.is_empty():
+			DirAccess.remove_absolute(_steamcmd_archive)
+	_reader_stop = true
+	for t in _reader_threads:
+		if t.is_started():
+			t.wait_to_finish()
+	_reader_threads.clear()
 
 
 ## Moves project [param from] to insertion slot [param to] (0.._projects.size()),
@@ -778,8 +952,7 @@ func _refresh_sidebar_selection() -> void:
 
 
 ## Switch the main view to project [param index]; -1 shows the SteamCMD setup
-## page (the welcome screen until the first app is added), which also carries
-## the Discord community section.
+## page, which also carries the Discord community section.
 func _show_project(index: int) -> void:
 	_selected_index = index
 	var has_project := index >= 0 and index < _projects.size()
@@ -789,7 +962,10 @@ func _show_project(index: int) -> void:
 	%RemoveProjectButton.visible = has_project
 	%SetupHeaderRow.visible = not has_project
 	%ComposerBox.visible = has_project
-	%StatusBanner.visible = false
+	_godot_status = {}
+	_run_status = {}
+	_dismissed_banners.clear()
+	%StatusStack.visible = false
 	%SteamCmdButton.set_pressed_no_signal(not has_project)
 	%NewAppButton.set_pressed_no_signal(false)  # Any real selection ends the pending "New" state.
 	%SteamChevron.texture = ARROW_DOWN if not has_project else ARROW_RIGHT
@@ -797,10 +973,6 @@ func _show_project(index: int) -> void:
 	_refresh_sidebar_selection()
 	if not has_project:
 		%HeaderDebounce.stop()
-		if _projects.is_empty():
-			%SetupTitle.text = "Welcome to %s" % _app_name()
-		else:
-			%SetupTitle.text = "SteamCMD"
 		_refresh_setup_state()
 		_refresh_discord(false)
 		return
@@ -822,12 +994,13 @@ func _show_project(index: int) -> void:
 		_preset_names = PackedStringArray()
 		_preset_platforms = PackedStringArray()
 		_probe_serial += 1  # Drop any in-flight Godot probe from the previous selection.
-		_godot_ok = true  # Nothing Godot-related can be wrong; lets the depot banner run.
 		_rebuild_depot_rows()
-		_show_preset_status()
+		_refresh_banners()
 	else:
 		_read_presets(p["path"])
-		if not _has_presets():
+		if not _project_file_exists(p):
+			log_line(_missing_project_message(p), COLOR_WARN)
+		elif not _has_presets():
 			log_line("'%s' has no export presets. Open it in Godot → Project → Export… and add one, then reselect the project." % p["name"], COLOR_WARN)
 		_rebuild_depot_rows()
 		_check_godot_version()
@@ -838,11 +1011,76 @@ func _show_project(index: int) -> void:
 	_maybe_auto_fetch_depots(_current_app_id())
 
 
-## Banner above the build bar for things the user should fix before publishing.
-func _show_status(text: String, color: String) -> void:
-	%BannerLabel.text = text
-	%BannerDot.self_modulate = Color(color)
-	%StatusBanner.visible = true
+## Rebuilds the banners above the build bar: one per thing the user should fix
+## before publishing, errors first. %StatusBanner is the hidden template.
+func _refresh_banners() -> void:
+	for child in %StatusStack.get_children():
+		if child != %StatusBanner:
+			child.queue_free()
+	var shown := 0
+	if _selected_index >= 0:
+		for msg in _status_messages():
+			if _dismissed_banners.has(msg["text"]):
+				continue
+			var banner: Control = %StatusBanner.duplicate()
+			banner.unique_name_in_owner = false
+			var label: Label = banner.get_node("BannerRow/BannerLabel")
+			label.text = msg["text"]
+			var dot: Control = banner.get_node("BannerRow/BannerDot")
+			dot.self_modulate = Color(msg["color"])
+			var close: Button = banner.get_node("BannerRow/DismissBannerButton")
+			close.accessibility_name = "Dismiss message"
+			close.pressed.connect(_on_banner_closed.bind(msg["text"], msg.get("id", "")))
+			banner.visible = true
+			%StatusStack.add_child(banner)
+			shown += 1
+	%StatusStack.visible = shown > 0
+
+
+## Every banner for the selected app as { "text", "color", "id" }, errors
+## before warnings. A missing project folder hides the rest: nothing else can
+## be checked until it is found.
+func _status_messages() -> Array[Dictionary]:
+	var p := _projects[_selected_index]
+	var folder := _is_folder_app(p)
+	var all: Array[Dictionary] = []
+	if not folder and not _project_file_exists(p):
+		all.append({ "text": _missing_project_message(p), "color": COLOR_ERR })
+		return all
+	if not _godot_status.is_empty():
+		all.append(_godot_status)
+	if not _run_status.is_empty():
+		all.append(_run_status)
+	if not folder and not _has_presets():
+		all.append({ "text": "No export presets found. Open the project in Godot → Project → Export… and add a preset, then reselect the project.", "color": COLOR_WARN })
+	var dupes := _duplicate_depot_ids()
+	if not dupes.is_empty():
+		all.append({ "text": _duplicate_depot_message(dupes), "color": COLOR_WARN })
+	if folder:
+		var missing := _missing_depot_folder(p)
+		if not missing.is_empty():
+			all.append({ "text": "A depot points at a folder that does not exist: %s" % missing, "color": COLOR_WARN })
+		if not p.get("folder_notice_dismissed", false):
+			all.append({ "text": FOLDER_APP_NOTICE, "color": COLOR_WARN, "id": "folder_notice" })
+	var errors: Array[Dictionary] = []
+	var warnings: Array[Dictionary] = []
+	for msg in all:
+		if msg["color"] == COLOR_ERR:
+			errors.append(msg)
+		else:
+			warnings.append(msg)
+	errors.append_array(warnings)
+	return errors
+
+
+## Hides one banner while this app is on screen; closing the folder-app notice
+## hides it for that app for good.
+func _on_banner_closed(text: String, id: String) -> void:
+	_dismissed_banners[text] = true
+	if id == "folder_notice" and _selected_index >= 0:
+		_projects[_selected_index]["folder_notice_dismissed"] = true
+		_save_projects()
+	_refresh_banners()
 
 
 func _commit_field(key: String, value: String) -> void:
@@ -862,6 +1100,29 @@ func _set_description(text: String) -> void:
 # ---------------------------------------------------------------------------
 # Form validation
 # ---------------------------------------------------------------------------
+
+## Strips everything but 0-9 from an ID field as the user types or pastes and
+## caps it at ID_MAX_DIGITS, keeping the caret in place. Returns the cleaned
+## text. Not LineEdit.max_length: that cuts a paste like "App ID: 2807130"
+## before the letters are gone. Setting text from code does not re-emit
+## text_changed, so this is safe inside that handler.
+func _digits_only(field: LineEdit, text: String) -> String:
+	var clean := ""
+	var removed_before_caret := 0
+	for i in text.length():
+		var c := text[i]
+		if c >= "0" and c <= "9":
+			clean += c
+		elif i < field.caret_column:
+			removed_before_caret += 1
+	clean = clean.left(ID_MAX_DIGITS)
+	if clean == text:
+		return text
+	var caret := mini(field.caret_column - removed_before_caret, clean.length())
+	field.text = clean
+	field.caret_column = caret
+	return clean
+
 
 ## Draws (or removes) the red border on a field that failed validation.
 func _set_field_error(control: Control, error: bool) -> void:
@@ -894,10 +1155,19 @@ func _clear_depot_error(index: int, key: String) -> void:
 ## marks the failing ones red and shows the SteamCMD page so they are visible.
 func _validate_login_fields() -> bool:
 	var ok := true
-	if %SteamUsername.text.strip_edges().is_empty():
+	var username: String = %SteamUsername.text.strip_edges()
+	if username.is_empty():
 		log_line("Enter a Steam username.", COLOR_ERR)
 		_set_field_error(%SteamUsername, true)
 		%SteamUsername.grab_focus()
+		ok = false
+	elif "@" in username:
+		# Only a warning: Steam decides, but SteamCMD wants the account name.
+		log_line("'%s' looks like an email address. SteamCMD signs in with the Steam account name (shown top right in the Steam client, under Account details), not the email." % username, COLOR_WARN)
+	var secret: String = %SteamSharedSecret.text
+	if not secret.strip_edges().is_empty() and steam_totp(secret).is_empty():
+		log_line("The shared secret is not valid (it must be the base64 shared_secret of the account). Leave the field empty unless you know you need it; Steam Guard codes from the mobile app or email work without it.", COLOR_ERR)
+		_set_field_error(%SteamSharedSecret, true)
 		ok = false
 	if not _validate_steamcmd_field():
 		ok = false
@@ -929,27 +1199,54 @@ func _validate_publish_form() -> bool:
 	var ok := true
 	_depot_errors.clear()
 
-	if p["app_id"].strip_edges().is_empty():
-		log_line("Steam App ID is required.", COLOR_ERR)
+	if not folder and not _project_file_exists(p):
+		log_line(_missing_project_message(p), COLOR_ERR)
+		ok = false
+
+	var app_id := str(p.get("app_id", "")).strip_edges()
+	if app_id.is_empty():
+		log_line("Steam App ID is required. It is the number in your app's Steamworks page address, e.g. partner.steamgames.com/apps/landing/480.", COLOR_ERR)
 		_set_field_error(%AppId, true)
 		ok = false
-	if _branch_name(p).to_lower() == "default":
+	elif not _is_positive_int(app_id):
+		log_line("App ID '%s' is not a number. Use only the digits of the App ID shown in Steamworks." % app_id, COLOR_ERR)
+		_set_field_error(%AppId, true)
+		ok = false
+	else:
+		for other in _projects:
+			if not is_same(other, p) and str(other.get("app_id", "")).strip_edges() == app_id:
+				log_line("'%s' uses App %s too. A demo or playtest has its own App ID in Steamworks; check that this is the app you mean to upload to." % [other["name"], app_id], COLOR_WARN)
+				break
+
+	var branch := _branch_name(p)
+	if branch.to_lower() == "default":
 		log_line("Steam does not allow SetLive on the default branch. Leave the field empty, upload, then set the build live in Steamworks → Builds and confirm in the Steam Mobile app.", COLOR_ERR)
 		_set_field_error(%Branch, true)
 		ok = false
+	elif " " in branch or "\"" in branch or "'" in branch:
+		log_line("Branch '%s' contains spaces or quotes. Type the branch name exactly as it is listed in Steamworks → SteamPipe → Builds (e.g. beta), or leave the field empty." % branch, COLOR_ERR)
+		_set_field_error(%Branch, true)
+		ok = false
+
 	if not folder:
 		if godot.is_empty():
 			log_line("Pick a Godot binary (or click the search button).", COLOR_ERR)
 			_set_field_error(%GodotBinary, true)
 			ok = false
 		elif not FileAccess.file_exists(godot):
-			log_line("Godot binary not found: %s" % godot, COLOR_ERR)
+			log_line("Godot binary not found: %s. It was moved or deleted – click the search button to find it again, or pick it with the folder button." % godot, COLOR_ERR)
 			_set_field_error(%GodotBinary, true)
 			ok = false
+		elif not _is_executable_file(godot):
+			log_line("%s is not marked as executable. Run  chmod +x \"%s\"  in a terminal, or pick the Godot program itself." % [godot, godot], COLOR_ERR)
+			_set_field_error(%GodotBinary, true)
+			ok = false
+		elif _is_csharp_project(p["path"]) and not _is_dotnet_godot(godot):
+			log_line("This is a C# project, but %s is the standard Godot build. Pick the .NET build of Godot %s, or the scripts will be missing from the export." % [godot.get_file(), _read_required_godot_version(p["path"])], COLOR_WARN)
 	if depots.is_empty():
-		log_line("Add at least one depot row.", COLOR_ERR)
+		log_line("Add at least one depot row (the + button, or Fetch to read them from Steam).", COLOR_ERR)
 		ok = false
-	if not folder and not _has_presets():
+	if not folder and _project_file_exists(p) and not _has_presets():
 		log_line("No export presets found in %s. Add one in Godot → Project → Export… first." % p["path"].path_join("export_presets.cfg"), COLOR_ERR)
 		ok = false
 
@@ -961,11 +1258,44 @@ func _validate_publish_form() -> bool:
 			if str(d.get(key, "")).strip_edges().is_empty():
 				_mark_depot_error(i, key)
 				row_incomplete = true
+		var depot_id := str(d.get("depot_id", "")).strip_edges()
+		if not depot_id.is_empty():
+			if not _is_positive_int(depot_id):
+				_mark_depot_error(i, "depot_id")
+				log_line("Depot ID '%s' is not a number. Copy the depot ID from Steamworks → SteamPipe → Depots." % depot_id, COLOR_ERR)
+				ok = false
+			elif depot_id == app_id:
+				_mark_depot_error(i, "depot_id")
+				log_line("Depot ID %s is the App ID. Depots have their own IDs, listed in Steamworks → SteamPipe → Depots (usually the App ID + 1, + 2, …)." % depot_id, COLOR_ERR)
+				ok = false
 		if folder:
 			var content_dir := str(d.get("content_dir", "")).strip_edges()
-			if not content_dir.is_empty() and not DirAccess.dir_exists_absolute(content_dir):
+			if content_dir.is_empty():
+				pass
+			elif not DirAccess.dir_exists_absolute(content_dir):
 				_mark_depot_error(i, "content_dir")
-				log_line("Depot %s: folder not found: %s" % [d.get("depot_id", "?"), content_dir], COLOR_ERR)
+				log_line("Depot %s: folder not found: %s. It was moved or deleted – pick it again with the folder button." % [depot_id, content_dir], COLOR_ERR)
+				ok = false
+			elif _dir_is_empty(content_dir):
+				_mark_depot_error(i, "content_dir")
+				log_line("Depot %s: %s is empty, so Steam would get nothing. Put the files to ship in it, or pick another folder." % [depot_id, content_dir], COLOR_ERR)
+				ok = false
+			elif content_dir.rstrip("/") in ["", _home_dir().rstrip("/")]:
+				log_line("Depot %s uploads %s, your whole %s. Pick the folder that holds only the files to ship." % [depot_id, content_dir, "disk" if content_dir.rstrip("/").is_empty() else "home folder"], COLOR_WARN)
+		else:
+			var preset := str(d.get("preset", ""))
+			var preset_index := _preset_names.find(preset)
+			if not preset.is_empty() and _has_presets() and preset_index < 0:
+				_mark_depot_error(i, "preset")
+				log_line("Depot %s: export preset '%s' no longer exists (renamed or deleted in Godot). Pick a preset in the depot row." % [depot_id, preset], COLOR_ERR)
+				ok = false
+			elif _platform_kind(preset_index) == "web":
+				log_line("Depot %s uses the web preset '%s'. Steam cannot launch web builds; use a Windows, macOS or Linux preset." % [depot_id, preset], COLOR_WARN)
+			var output := str(d.get("output", ""))
+			var why := _invalid_file_name_reason(output)
+			if not output.strip_edges().is_empty() and not why.is_empty():
+				_mark_depot_error(i, "output")
+				log_line("Depot %s: executable name '%s' %s. Use letters, digits, '-' and '_'." % [depot_id, output, why], COLOR_ERR)
 				ok = false
 	if row_incomplete:
 		if folder:
@@ -978,13 +1308,107 @@ func _validate_publish_form() -> bool:
 	if not dupes.is_empty():
 		log_line(_duplicate_depot_message(dupes), COLOR_WARN)
 		for i in depots.size():
-			if dupes.has(depots[i]["depot_id"].strip_edges()):
+			if dupes.has(str(depots[i].get("depot_id", "")).strip_edges()):
 				_mark_depot_error(i, "depot_id")
+
+	var space_left := _free_disk_bytes()
+	if space_left >= 0 and space_left < LOW_DISK_BYTES:
+		log_line("Only %s of disk space is left in %s. Exports and SteamCMD need room for a full copy of the game; free up space if the build fails." % [String.humanize_size(space_left), OS.get_user_data_dir()], COLOR_WARN)
 
 	if not _validate_login_fields():
 		ok = false
 	_rebuild_depot_rows()
 	return ok
+
+
+## True for a string of digits with a value above zero (App and depot IDs).
+static func _is_positive_int(text: String) -> bool:
+	return text.is_valid_int() and not text.begins_with("+") and not text.begins_with("-") and int(text) > 0
+
+
+## Why [param file_name] cannot be an executable name on every desktop OS
+## ("contains ':'", "is a reserved name on Windows", …), or "" when it can.
+static func _invalid_file_name_reason(file_name: String) -> String:
+	for c: String in ILLEGAL_FILE_CHARS:
+		if c in file_name:
+			return "contains '%s'" % c
+	if file_name.begins_with(" ") or file_name.ends_with(" "):
+		return "starts or ends with a space"
+	if file_name.ends_with("."):
+		return "ends with a dot"
+	if file_name.get_slice(".", 0).to_upper() in WINDOWS_RESERVED_NAMES:
+		return "is a reserved name on Windows"
+	return ""
+
+
+## [param text] without the characters no OS accepts in a file name.
+static func _strip_illegal_file_chars(text: String) -> String:
+	for c: String in ILLEGAL_FILE_CHARS:
+		text = text.replace(c, "")
+	return text
+
+
+## True unless the file lacks every executable bit (macOS / Linux). Windows
+## has no such bits, so it always counts as executable there.
+static func _is_executable_file(path: String) -> bool:
+	if OS.get_name() == "Windows":
+		return true
+	var mode := FileAccess.get_unix_permissions(path)
+	return mode == 0 or (mode & 0x49) != 0  # 0 = unknown; 0x49 = 0111
+
+
+## True for projects that use C# (a .csproj next to project.godot, or a
+## [dotnet] section in it). Those only export correctly with the .NET build.
+func _is_csharp_project(project_path: String) -> bool:
+	var cfg := ConfigFile.new()
+	if cfg.load(project_path.path_join("project.godot")) == OK and cfg.has_section("dotnet"):
+		return true
+	var dir := DirAccess.open(project_path)
+	if dir == null:
+		return false
+	for f in dir.get_files():
+		if f.get_extension().to_lower() == "csproj":
+			return true
+	return false
+
+
+## True when [param binary] is a .NET ("mono") build of Godot, judged from
+## its cached --version ("4.3.stable.mono.official"). A binary that was never
+## probed counts as .NET so a missing probe never raises a false warning.
+func _is_dotnet_godot(binary: String) -> bool:
+	var version := str(_version_cache.get(binary, {}).get("version", "")).to_lower()
+	return version.is_empty() or version.contains("mono")
+
+
+## True when [param path] holds no visible files or folders.
+static func _dir_is_empty(path: String) -> bool:
+	var dir := DirAccess.open(path)
+	if dir == null:
+		return false
+	return dir.get_files().is_empty() and dir.get_directories().is_empty()
+
+
+## Free bytes on the disk that holds this app's data folder, -1 if unknown.
+static func _free_disk_bytes() -> int:
+	var dir := DirAccess.open(OS.get_user_data_dir())
+	if dir == null:
+		return -1
+	return dir.get_space_left()
+
+
+## True when a Godot app's folder still has its project.godot. Folder apps
+## always count as present; their depot folders are checked separately.
+static func _project_file_exists(p: Dictionary) -> bool:
+	if str(p.get("kind", "godot")) == "folder":
+		return true
+	return FileAccess.file_exists(str(p.get("path", "")).path_join("project.godot"))
+
+
+func _missing_project_message(p: Dictionary) -> String:
+	var path := str(p.get("path", ""))
+	if DirAccess.dir_exists_absolute(path):
+		return "'%s': there is no project.godot in %s any more. Click the app name at the top to point at the project's folder." % [p["name"], path]
+	return "'%s': the project folder %s was moved, renamed or deleted. Click the app name at the top to point at its new location." % [p["name"], path]
 
 
 # ---------------------------------------------------------------------------
@@ -1078,7 +1502,7 @@ func _refresh_steam_header(force: bool) -> void:
 	if not app_id.is_valid_int() or int(app_id) <= 0:
 		_show_capsule_placeholder()
 		_set_refresh_header_enabled(false)
-		log_line("App ID '%s' is not a number, so no Steam capsule can be fetched." % app_id, COLOR_WARN)
+		log_line("App ID '%s' is not a number, so no Steam capsule can be fetched. Use only the digits of the App ID shown in Steamworks." % app_id, COLOR_WARN)
 		return
 
 	# Keep the previous image while a different app loads only if it is the same app.
@@ -1154,11 +1578,19 @@ func _check_godot_version() -> void:
 	var required := _read_required_godot_version(p["path"])
 	var binary: String = p.get("godot_binary", "")
 
+	_godot_status = {}
+	if not _project_file_exists(p):
+		# _status_messages shows only this: nothing works until the folder is found.
+		_probe_serial += 1
+		%GodotVersionLabel.text = "Project not found"
+		%GodotVersionDot.self_modulate = Color(COLOR_ERR)
+		_refresh_banners()
+		return
+
 	if binary.is_empty() or not FileAccess.file_exists(binary):
-		_godot_ok = false
 		%GodotVersionLabel.text = "Needs Godot %s · no binary" % required
 		%GodotVersionDot.self_modulate = Color(COLOR_ERR)
-		_show_status("Pick a Godot %s binary (or click the search button) before building." % required, COLOR_ERR)
+		_set_godot_status("Pick a Godot %s binary (or click the search button) before building." % required, COLOR_ERR)
 		return
 
 	var index := _selected_index
@@ -1167,48 +1599,33 @@ func _check_godot_version() -> void:
 	if not _version_cache.has(binary):
 		%GodotVersionLabel.text = "Needs Godot %s · checking…" % required
 		%GodotVersionDot.self_modulate = Color(COLOR_MUTED)
+	_refresh_banners()  # Depot warnings need not wait for the probe.
 	var reported := await _binary_version(binary)
 	# The user may have switched project (or re-checked) while Godot was probed.
 	if serial != _probe_serial or index != _selected_index:
 		return
+	if reported.is_empty():
+		%GodotVersionLabel.text = "Needs Godot %s · binary did not answer" % required
+		%GodotVersionDot.self_modulate = Color(COLOR_ERR)
+		_set_godot_status("%s did not report a Godot version. Pick the Godot editor program itself (not a launcher, shortcut or script), then press the search button to check again." % binary.get_file(), COLOR_ERR)
+		_rebuild_sidebar()
+		return
 	var matches := reported.begins_with(required + ".")
 	%GodotVersionLabel.text = "Needs Godot %s · binary is %s" % [required, reported]
 	%GodotVersionDot.self_modulate = Color(COLOR_OK if matches else COLOR_WARN)
-	_godot_ok = matches
-	if matches:
-		_show_preset_status()
-	else:
-		_show_status("Version mismatch: the project wants Godot %s but the binary is %s." % [required, reported], COLOR_WARN)
+	if matches and _is_csharp_project(p["path"]) and not reported.to_lower().contains("mono"):
+		%GodotVersionDot.self_modulate = Color(COLOR_WARN)
+		_set_godot_status("This is a C# project, but the binary is the standard Godot build. Pick the .NET build of Godot %s, or the export will be missing its scripts." % required, COLOR_WARN)
+	elif not matches:
+		_set_godot_status("Version mismatch: the project wants Godot %s but the binary is %s. Pick a Godot %s binary (the search button finds installed ones), or the export may fail or behave differently." % [required, reported, required], COLOR_WARN)
 		log_line("Godot version mismatch for %s: project wants %s, binary is %s" % [p["name"], required, reported], COLOR_WARN)
 	_rebuild_sidebar()
 
 
-## Banner fallback when Godot itself is fine: warn about missing export presets,
-## then about depot IDs shared by several rows.
-func _show_preset_status() -> void:
-	if _selected_index < 0:
-		return
-	var p := _projects[_selected_index]
-	if not _is_folder_app(p) and not _has_presets():
-		_show_status("No export presets found. Open the project in Godot → Project → Export… and add a preset, then reselect the project.", COLOR_WARN)
-		return
-	var dupes := _duplicate_depot_ids()
-	if not dupes.is_empty():
-		_show_status(_duplicate_depot_message(dupes), COLOR_WARN)
-		return
-	if _is_folder_app(p):
-		var missing := _missing_depot_folder(p)
-		if not missing.is_empty():
-			_show_status("A depot points at a folder that does not exist: %s" % missing, COLOR_WARN)
-			return
-	%StatusBanner.visible = false
-
-
-## Re-evaluates the banner after a depot edit without re-probing the Godot
-## binary. Does nothing while a Godot problem is showing, since that outranks it.
-func _refresh_depot_status() -> void:
-	if _godot_ok:
-		_show_preset_status()
+## Records the Godot problem of the selected app and shows it with the rest.
+func _set_godot_status(text: String, color: String) -> void:
+	_godot_status = { "text": text, "color": color }
+	_refresh_banners()
 
 
 ## Depot IDs used by more than one row of the selected project, ignoring blanks.
@@ -1235,7 +1652,7 @@ func _duplicate_depot_message(dupes: PackedStringArray) -> String:
 func _on_godot_binary_selected(path: String) -> void:
 	var resolved := _resolve_godot_binary(path)
 	if resolved.is_empty():
-		log_line("No executable found inside %s" % path, COLOR_ERR)
+		log_line("No Godot program found inside %s. It is probably a Steam shortcut; pick Godot.app itself (for a Steam install: Steam → Godot Engine → Manage → Browse local files) or the Godot executable." % path, COLOR_ERR)
 		return
 	%GodotBinary.text = resolved  # text_changed does not fire on set, commit manually
 	_set_field_error(%GodotBinary, false)
@@ -1252,7 +1669,7 @@ func _on_check_godot_pressed() -> void:
 		var required := _read_required_godot_version(_projects[_selected_index]["path"])
 		var found := await _guess_godot_binary(required)
 		if found.is_empty():
-			log_line("No Godot %s install found on PATH, in common install folders, your Steam libraries or Downloads. Use the folder button to pick one." % required, COLOR_WARN)
+			log_line("No Godot %s install found on PATH, in common install folders, your Steam libraries or Downloads. Use the folder button to pick one, or download Godot %s from https://godotengine.org/download/archive/ first." % [required, required], COLOR_WARN)
 		else:
 			log_line("Found Godot %s at %s" % [required, found], COLOR_OK)
 			%GodotBinary.text = found
@@ -1446,12 +1863,17 @@ func _binary_version(binary: String, timeout_msec: int = 8000) -> String:
 	while OS.is_process_running(pid):
 		if Time.get_ticks_msec() - started > timeout_msec:
 			OS.kill(pid)
-			log_line("Timed out probing %s – not a Godot binary?" % binary, COLOR_WARN)
+			stdio.close()
+			info["stderr"].close()
+			log_line("%s did not answer --version within %.0f s, so it is probably not the Godot editor (a launcher or shortcut?). Pick the real Godot program." % [binary, timeout_msec / 1000.0], COLOR_WARN)
 			return ""
 		await get_tree().process_frame  # keep the window responsive meanwhile
 	var version := stdio.get_line().strip_edges()
 	stdio.close()
 	info["stderr"].close()
+	# Godot prints "4.7.2.stable.official.<hash>"; anything else is not Godot.
+	if not version.left(1).is_valid_int():
+		version = ""
 	if not version.is_empty():
 		_version_cache[binary] = {"version": version, "mtime": mtime}
 		_save_version_cache()
@@ -1462,7 +1884,7 @@ func _save_version_cache() -> void:
 	var cfg := ConfigFile.new()
 	for binary in _version_cache:
 		cfg.set_value("versions", binary, _version_cache[binary])
-	cfg.save(VERSION_CACHE_FILE)
+	_report_save(cfg.save(VERSION_CACHE_FILE), VERSION_CACHE_FILE)
 
 
 ## Entries whose binary vanished or changed on disk are dropped on load.
@@ -1526,9 +1948,6 @@ func _apply_depot_table_kind(folder: bool) -> void:
 	%ColPresetRow.visible = not folder
 	%ColOutputRow.visible = not folder
 	%ColFolderRow.visible = folder
-	# The Godot layout needs no warning: the executable field, its ghost
-	# extension and the Installation → General link button already explain it.
-	%DepotsWarning.visible = folder
 	if folder:
 		%DepotsEmpty.text = "No depots yet. Add one row per content folder · Steam needs at least one."
 		%AddDepotButton.tooltip_text = "Add a depot (one per content folder)"
@@ -1548,7 +1967,7 @@ func _on_add_depot_pressed() -> void:
 	depots.insert(0, _new_depot_entry(preset, ""))
 	_save_projects()
 	_rebuild_depot_rows()
-	_refresh_depot_status()
+	_refresh_banners()
 
 
 ## Asks SteamCMD for the App ID's depot list and appends a row for every depot
@@ -1604,6 +2023,10 @@ func _fetch_depots(auto: bool) -> void:
 	elif not _validate_steamcmd_field():
 		return
 	var steamcmd := _resolve_steamcmd(%SteamCmdBinary.text)
+	# The user may select another app while SteamCMD runs; the result belongs
+	# to this one.
+	var p := _projects[_selected_index]
+	var auto_key := _auto_fetch_key(app_id)
 	_fetching_depots = true
 	_set_busy(true)
 	var how := " (automatic)" if auto else ""
@@ -1617,9 +2040,10 @@ func _fetch_depots(auto: bool) -> void:
 	var res := await _query_depots(steamcmd, args, app_id)
 	if _bail_if_cancelled():
 		return
-	if res["code"] != 0 and _password_prompt_seen and not anonymous:
+	if res["code"] != 0 and _password_prompt_seen and not _password_sent and not anonymous:
 		# Public apps list their depots to anyone, so a missing password need
-		# not block the table. Unreleased apps still need the account.
+		# not block the table. Unreleased apps still need the account. A
+		# password that was sent and refused is reported instead.
 		anonymous = true
 		log_line("Fetching the public depot list for App ID %s anonymously instead." % app_id, COLOR_INFO)
 		args = PackedStringArray(["+login", "anonymous"])
@@ -1636,13 +2060,20 @@ func _fetch_depots(auto: bool) -> void:
 			return
 	if res["code"] != 0:
 		log_line("SteamCMD failed (exit code %d); depots not fetched." % res["code"], COLOR_ERR)
+		_explain_known_issues(STEAMCMD_FALLBACK, _is_selected(p))
 		log_step_done(false)
 		_set_busy(false)
 		return
 	if not anonymous:
 		_mark_login_verified()
+	if not _is_selected(p):
+		# The depot table and presets on screen belong to another app now.
+		log_line("Depots for App %s arrived after you switched apps, so nothing was added. Select '%s' and press Fetch again." % [app_id, p["name"]], COLOR_WARN)
+		log_step_done(false, "app switched")
+		_set_busy(false)
+		return
 	if auto:
-		_auto_depot_fetches[_auto_fetch_key(app_id)] = true
+		_auto_depot_fetches[auto_key] = true
 	var found: Array[Dictionary] = res["found"]
 	if found.is_empty():
 		if anonymous:
@@ -1658,13 +2089,19 @@ func _fetch_depots(auto: bool) -> void:
 
 
 ## One SteamCMD run for [param app_id]'s app info, parsed:
-## { "code": int, "found": Array[Dictionary] } (see SteamAppInfo.parse_depots).
+## { "code": int, "found": Array[Dictionary], "all_ids": PackedStringArray }
+## (see SteamAppInfo.parse_depots and uploadable_depot_ids). A non-empty
+## all_ids also goes into _steam_depot_ids.
 func _query_depots(steamcmd: String, args: PackedStringArray, app_id: String) -> Dictionary:
 	var res := await run_process_capture(steamcmd, args)
 	var found: Array[Dictionary] = []
+	var all_ids := PackedStringArray()
 	if res["code"] == 0:
 		found = SteamAppInfo.parse_depots(res["output"], app_id)
-	return {"code": res["code"], "found": found}
+		all_ids = SteamAppInfo.uploadable_depot_ids(res["output"], app_id)
+		if not all_ids.is_empty():
+			_steam_depot_ids[app_id] = all_ids
+	return {"code": res["code"], "found": found, "all_ids": all_ids}
 
 
 ## Inserts the depots from [param found] that are not already in the table at
@@ -1694,7 +2131,7 @@ func _merge_fetched_depots(found: Array[Dictionary]) -> void:
 		_depot_errors.clear()
 		_save_projects()
 		_rebuild_depot_rows()
-		_refresh_depot_status()
+		_refresh_banners()
 		log_line("Added %d depot(s): %s" % [added.size(), ", ".join(added)], COLOR_OK)
 	if skipped > 0:
 		log_line("Skipped %d depot(s) already in the table." % skipped, COLOR_INFO)
@@ -1769,13 +2206,14 @@ func _make_folder_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 	path.text = str(depot.get("content_dir", ""))
 	path.placeholder_text = "Type a path or use the folder button"
 	path.tooltip_text = "Every file in this folder is uploaded to the depot."
+	path.accessibility_name = "Depot %d folder" % (index + 1)
 	_set_field_error(path, errors.has("content_dir"))
 	path.text_changed.connect(func(t: String) -> void:
 		_clear_depot_error(index, "content_dir")
 		_set_field_error(path, false)
 		_projects[_selected_index]["depots"][index]["content_dir"] = t
 		_save_projects()
-		_refresh_depot_status()
+		_refresh_banners()
 	)
 	folder_box.add_child(path)
 
@@ -1786,6 +2224,7 @@ func _make_folder_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 	browse.custom_minimum_size = Vector2(24, 24)
 	browse.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	browse.tooltip_text = "Choose the folder to upload"
+	browse.accessibility_name = "Choose depot %d folder" % (index + 1)
 	browse.disabled = _is_busy
 	browse.pressed.connect(func() -> void:
 		%DepotFolderDialog.set_meta("row", index)
@@ -1813,7 +2252,7 @@ func _on_depot_folder_selected(dir: String) -> void:
 	_clear_depot_error(i, "content_dir")
 	_save_projects()
 	_rebuild_depot_rows()
-	_refresh_depot_status()
+	_refresh_banners()
 	_rebuild_sidebar()
 
 
@@ -1824,14 +2263,16 @@ func _make_depot_id_field(index: int, depot: Dictionary, errors: Dictionary) -> 
 	depot_id.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	depot_id.size_flags_stretch_ratio = DEPOT_ID_STRETCH
 	depot_id.placeholder_text = "2807131"
+	depot_id.accessibility_name = "Depot %d ID" % (index + 1)
 	depot_id.text = str(depot.get("depot_id", ""))
 	_set_field_error(depot_id, errors.has("depot_id"))
 	depot_id.text_changed.connect(func(t: String) -> void:
+		t = _digits_only(depot_id, t)
 		_clear_depot_error(index, "depot_id")
 		_set_field_error(depot_id, false)
 		_projects[_selected_index]["depots"][index]["depot_id"] = t
 		_save_projects()
-		_refresh_depot_status()
+		_refresh_banners()
 	)
 	return depot_id
 
@@ -1842,13 +2283,14 @@ func _make_depot_remove_button(index: int) -> Button:
 	remove.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	remove.theme_type_variation = &"IconButton"
 	remove.tooltip_text = "Remove depot"
+	remove.accessibility_name = "Remove depot %d" % (index + 1)
 	remove.custom_minimum_size.x = 28
 	remove.pressed.connect(func() -> void:
 		_depot_errors.clear()
 		_projects[_selected_index]["depots"].remove_at(index)
 		_save_projects()
 		_rebuild_depot_rows()
-		_refresh_depot_status()
+		_refresh_banners()
 		_rebuild_sidebar()
 	)
 	return remove
@@ -1863,6 +2305,7 @@ func _make_godot_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 	preset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	preset.size_flags_stretch_ratio = PRESET_STRETCH
 	preset.clip_text = true
+	preset.accessibility_name = "Depot %d export preset" % (index + 1)
 	preset.add_theme_constant_override("icon_max_width", PRESET_ICON_SIZE)
 	preset.get_popup().add_theme_constant_override("icon_max_width", PRESET_ICON_SIZE)
 	for i in _preset_names.size():
@@ -1878,6 +2321,15 @@ func _make_godot_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 	var sel := _preset_names.find(depot["preset"])
 	if sel >= 0:
 		preset.select(sel)
+	elif _has_presets() and not str(depot["preset"]).is_empty():
+		# Renamed or deleted in Godot: show the stale name instead of letting
+		# the dropdown pretend the first preset is chosen.
+		preset.add_item("%s (missing)" % depot["preset"])
+		preset.set_item_disabled(preset.item_count - 1, true)
+		preset.select(preset.item_count - 1)
+		preset.tooltip_text = "'%s' is no longer an export preset of this project (renamed or deleted in Godot). Pick another preset." % depot["preset"]
+	elif _has_presets():
+		preset.select(-1)  # Nothing chosen yet; the first item is not a choice.
 	var errors: Dictionary = _depot_errors.get(index, {})
 	_set_field_error(preset, errors.has("preset"))
 	preset.item_selected.connect(func(idx: int) -> void:
@@ -1900,6 +2352,7 @@ func _make_godot_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 	output.size_flags_stretch_ratio = OUTPUT_STRETCH
 	output.clip_contents = true
 	output.placeholder_text = _default_base_name()
+	output.accessibility_name = "Depot %d executable name" % (index + 1)
 	output.tooltip_text = "Name of the game executable. The extension is added for you from the preset's platform. Steam launches this file, so use the same full name in your Steamworks launch option."
 	output.text = depot["output"]
 	_set_field_error(output, errors.has("output"))
@@ -1923,7 +2376,7 @@ func _make_godot_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 	output.add_child(ext)
 
 	output.text_changed.connect(func(t: String) -> void:
-		var clean := t.replace("/", "").replace("\\", "")
+		var clean := _strip_illegal_file_chars(t)
 		if clean != t:
 			var caret := output.caret_column
 			output.text = clean
@@ -2007,13 +2460,6 @@ func _shown_extension(kind: String) -> String:
 	return _export_extension(kind)
 
 
-## Full file name passed to Godot's export for [param depot]: the base name
-## typed in the table plus the extension of its preset's platform.
-func _export_file_name(depot: Dictionary) -> String:
-	var kind := _platform_kind(_preset_names.find(depot["preset"]))
-	return depot["output"] + _export_extension(kind)
-
-
 ## Default executable base name: the project name from project.godot reduced
 ## to letters, digits, "_" and "-", or "game" when nothing is left.
 func _default_base_name() -> String:
@@ -2064,30 +2510,69 @@ func _on_build_publish_pressed() -> void:
 	var godot: String = p.get("godot_binary", "")
 	var folder := _is_folder_app(p)
 	var steamcmd := _resolve_steamcmd(%SteamCmdBinary.text)
+	# Read everything that belongs to the page on screen now: the user may look
+	# at another app while this one builds, which reloads _preset_names.
+	var file_names := PackedStringArray()
+	var kinds := PackedStringArray()
+	if not folder:
+		for d in depots:
+			var kind := _platform_kind(_preset_names.find(d["preset"]))
+			kinds.append(kind)
+			file_names.append(str(d["output"]).strip_edges() + _export_extension(kind))
 	# The description works like a chat box: it is sent with this build and the
 	# field clears right away. It is put back if the run fails or is cancelled.
 	var description: String = p["description"]
 	_set_description("")
+	if not _run_status.is_empty():
+		_run_status = {}  # The last run's fix no longer applies to this one.
+		_refresh_banners()
 
 	_set_busy(true)
 	log_banner(("Publish %s (App %s)" if folder else "Build and publish %s (App %s)") % [p["name"], p["app_id"]])
 
+	# 0) A depot ID the app does not own only fails at the upload, after every
+	# export, and Steam then just says "Access Denied". Ask Steam first.
+	var depot_check := await _check_depots_on_steam(p, steamcmd, description)
+	if depot_check == "stop":
+		return
+
 	var build_dir := OS.get_user_data_dir().path_join("builds").path_join(p["app_id"])
 	var content_root := build_dir.path_join("content")
-	if not folder:
-		_remove_dir_recursive(content_root)
-	DirAccess.make_dir_recursive_absolute(build_dir.path_join("output"))
-	DirAccess.make_dir_recursive_absolute(content_root)
+	if not folder and not _remove_dir_recursive(content_root):
+		log_line("Could not delete the previous build in %s, so a file in it is still in use. Close any copy of the game started from that folder (and any window showing it), then build again." % content_root, COLOR_ERR)
+		_fail_publish(p, description)
+		return
+	if not _make_dir(build_dir.path_join("output")) or not _make_dir(content_root):
+		_fail_publish(p, description)
+		return
+
+	# A project that was never opened in Godot has no imported assets yet, and
+	# a headless export of it can miss resources. Import once first.
+	if not folder and not DirAccess.dir_exists_absolute(str(p["path"]).path_join(".godot")):
+		if _supports_import_flag(_read_required_godot_version(p["path"])):
+			log_step("Importing the project's assets (first export of this project)")
+			var import_code := await run_process(godot, PackedStringArray(["--headless", "--path", p["path"], "--import"]), KnownIssues.GODOT)
+			if _bail_if_cancelled():
+				_restore_description(p, description)
+				return
+			if import_code != 0:
+				log_line("Godot reported problems while importing; the export below shows whether they matter.", COLOR_WARN)
+			log_step_done(import_code == 0, "" if import_code == 0 else "continuing with the export")
+		else:
+			log_line("This project has never been opened in Godot, so its assets are not imported yet. If the export fails, open it once in the Godot editor and build again.", COLOR_WARN)
 
 	# 1) Folder apps upload their folders as-is; Godot apps export one preset per depot.
-	for d in depots:
+	for i in depots.size():
+		var d: Dictionary = depots[i]
 		if folder:
 			log_step("Depot %s ← %s" % [d["depot_id"], d["content_dir"]])
 			log_step_done(true)
 			continue
-		var depot_dir := content_root.path_join(d["depot_id"])
-		DirAccess.make_dir_recursive_absolute(depot_dir)
-		var out_path := depot_dir.path_join(_export_file_name(d))
+		var depot_dir := content_root.path_join(str(d["depot_id"]).strip_edges())
+		if not _make_dir(depot_dir):
+			_fail_publish(p, description)
+			return
+		var out_path := depot_dir.path_join(file_names[i])
 		log_step("Exporting '%s' as %s → depot %s" % [d["preset"], out_path.get_file(), d["depot_id"]])
 
 		var code := await run_process(godot, [
@@ -2095,37 +2580,37 @@ func _on_build_publish_pressed() -> void:
 			"--path", p["path"],
 			"--export-release", d["preset"],
 			out_path,
-		])
+		], KnownIssues.GODOT)
 		if _bail_if_cancelled():
-			_set_description(description)
+			_restore_description(p, description)
 			return
 		if code != 0 or not FileAccess.file_exists(out_path):
-			log_line("Export of '%s' failed." % d["preset"], COLOR_ERR)
-			log_step_done(false, "export failed")
-			_set_description(description)
-			_set_busy(false)
+			var why := "" if code != 0 else " (Godot finished without writing %s)" % out_path.get_file()
+			log_line("Export of '%s' failed%s." % [d["preset"], why], COLOR_ERR)
+			_explain_known_issues(EXPORT_FALLBACK, _is_selected(p))
+			_fail_publish(p, description, "export failed")
 			return
 
 		# macOS exports are zipped .app bundles – unpack so Steam ships the bundle itself.
 		if out_path.ends_with(".zip"):
 			var ok := await _unzip_in_place(out_path, depot_dir)
 			if _bail_if_cancelled():
-				_set_description(description)
+				_restore_description(p, description)
 				return
 			if not ok:
-				log_step_done(false, "unpack failed")
-				_set_description(description)
-				_set_busy(false)
+				_fail_publish(p, description, "unpack failed")
 				return
 			# Godot names the bundle inside the zip after the project name, not
 			# the zip file. Rename it so it matches the executable in the table.
-			if _platform_kind(_preset_names.find(d["preset"])) == "macos":
+			if kinds[i] == "macos":
 				_rename_app_bundle(depot_dir, d["output"])
 		log_step_done(true)
 
 	# 2) Write the SteamCMD build script.
 	var vdf_path := build_dir.path_join("app_build.vdf")
-	_write_app_build_vdf(vdf_path, p, build_dir, description)
+	if not _write_app_build_vdf(vdf_path, p, build_dir, description):
+		_fail_publish(p, description)
+		return
 	log_line("Wrote %s" % vdf_path, COLOR_INFO)
 
 	# 3) Upload with SteamCMD.
@@ -2135,12 +2620,15 @@ func _on_build_publish_pressed() -> void:
 	var typed_code: bool = not %SteamGuardCode.text.strip_edges().is_empty()
 	var upload_code := await run_process(steamcmd, steam_args)
 	if _bail_if_cancelled():
-		_set_description(description)
+		_restore_description(p, description)
 		return
 	if upload_code != 0:
 		log_line("SteamCMD upload failed (exit code %d)." % upload_code, COLOR_ERR)
-		_explain_guard_failure(typed_code)
-		_set_description(description)
+		if depot_check == "confirmed" and _seen_issues.has("build_access_denied"):
+			log_line("Steam lists every depot in the table for App %s, so the depot IDs are right; the account's Steamworks permissions are the likely cause." % p["app_id"], COLOR_INFO)
+		var guard_explained := _explain_guard_failure(typed_code)
+		_explain_known_issues("" if guard_explained else STEAMCMD_FALLBACK, _is_selected(p))
+		_restore_description(p, description)
 	elif _branch_name(p).is_empty():
 		_mark_login_verified()
 		log_line("Upload complete. Set the build live in Steamworks → Builds. The default branch needs confirmation in the Steam Mobile app; beta branches can be set live there or from the branch field.", COLOR_OK)
@@ -2151,29 +2639,161 @@ func _on_build_publish_pressed() -> void:
 	_set_busy(false)
 
 
+## Build & Publish step 0: checks every depot ID of [param p] against the
+## depot list Steam has for its App ID, from _steam_depot_ids when that
+## already covers them, otherwise with one SteamCMD run under the same login
+## the upload uses. Returns "confirmed" when Steam lists them all, "unknown"
+## when the list could not be read (the build goes on), or "stop" when the run
+## ended here (wrong IDs, failed SteamCMD or cancel) and is already cleaned up.
+func _check_depots_on_steam(p: Dictionary, steamcmd: String, description: String) -> String:
+	var app_id := str(p["app_id"]).strip_edges()
+	var wanted := PackedStringArray()
+	for d in p["depots"]:
+		wanted.append(str(int(str(d.get("depot_id", "")).strip_edges())))
+	var cached: PackedStringArray = _steam_depot_ids.get(app_id, PackedStringArray())
+	if not cached.is_empty() and _ids_not_listed(wanted, cached).is_empty():
+		return "confirmed"
+
+	log_step("Checking depots on Steam")
+	var typed_code: bool = not %SteamGuardCode.text.strip_edges().is_empty()
+	var args := _steam_login_args()
+	# Printed twice: on a cold cache the first print is often a stub (see _fetch_depots).
+	args.append_array(["+app_info_update", "1", "+app_info_print", app_id, "+app_info_print", app_id, "+quit"])
+	var res := await _query_depots(steamcmd, args, app_id)
+	if _bail_if_cancelled():
+		_restore_description(p, description)
+		return "stop"
+	if res["code"] != 0:
+		# Same login as the upload, so the upload would fail too: stop before exporting.
+		log_line("SteamCMD failed (exit code %d) before anything was exported." % res["code"], COLOR_ERR)
+		var guard_explained := _explain_guard_failure(typed_code)
+		_explain_known_issues("" if guard_explained else STEAMCMD_FALLBACK, _is_selected(p))
+		_fail_publish(p, description, "SteamCMD failed")
+		return "stop"
+	_mark_login_verified()
+	if typed_code:
+		%SteamGuardCode.text = ""  # Used up; the upload signs in with the cached session.
+
+	var listed: PackedStringArray = res["all_ids"]
+	if listed.is_empty():
+		log_line("Steam did not show the depot list of App %s (unreleased apps only show it to an account with Steamworks access to the app), so the depot IDs are not checked. Building anyway." % app_id, COLOR_WARN)
+		log_step_done(true, "not checked")
+		return "unknown"
+	var missing := _ids_not_listed(wanted, listed)
+	if missing.is_empty():
+		log_step_done(true)
+		return "confirmed"
+
+	var shown := listed.slice(0, 12)
+	var steam_list := ", ".join(shown) + (", …" if listed.size() > shown.size() else "")
+	var msg := "%s %s not %s of App %s. Steam lists: %s. Fix the ID%s in the depot table, or press Fetch to read them from Steam. A depot just added in Steamworks only counts once the change is published (SteamPipe → Depots, then Publish)." % [
+		"Depot" if missing.size() == 1 else "Depots",
+		", ".join(missing),
+		"is a depot" if missing.size() == 1 else "are depots",
+		app_id,
+		steam_list,
+		"" if missing.size() == 1 else "s",
+	]
+	log_line(msg, COLOR_ERR)
+	if _is_selected(p):
+		var depots: Array = p["depots"]
+		for i in depots.size():
+			if missing.has(wanted[i]):
+				_mark_depot_error(i, "depot_id")
+		_rebuild_depot_rows()
+		_run_status = { "text": msg, "color": COLOR_ERR }
+		_refresh_banners()
+	_fail_publish(p, description, "wrong depot IDs")
+	return "stop"
+
+
+## The IDs of [param wanted] that are not in [param listed], each once.
+static func _ids_not_listed(wanted: PackedStringArray, listed: PackedStringArray) -> PackedStringArray:
+	var out := PackedStringArray()
+	for id in wanted:
+		if not listed.has(id) and not out.has(id):
+			out.append(id)
+	return out
+
+
+## Ends a Build & Publish run that stopped before a successful upload: closes
+## the open step, gives [param p] its description back and leaves the busy state.
+func _fail_publish(p: Dictionary, description: String, note := "") -> void:
+	log_step_done(false, note)
+	_restore_description(p, description)
+	_set_busy(false)
+
+
+## Puts [param text] back as the build description of [param p]; also into
+## the field when that app is still the one on screen.
+func _restore_description(p: Dictionary, text: String) -> void:
+	if _is_selected(p):
+		_set_description(text)
+	else:
+		p["description"] = text
+		_save_projects()
+
+
+## True while [param p] is the app shown in the main view.
+func _is_selected(p: Dictionary) -> bool:
+	return _selected_index >= 0 and _selected_index < _projects.size() and is_same(_projects[_selected_index], p)
+
+
+## Godot 4.2 added --import (import, then quit). [param required] is "4.7".
+static func _supports_import_flag(required: String) -> bool:
+	var parts := required.split(".")
+	if parts.size() < 2 or not parts[0].is_valid_int() or not parts[1].is_valid_int():
+		return false
+	var major := int(parts[0])
+	return major > 4 or (major == 4 and int(parts[1]) >= 2)
+
+
+## Creates [param path] with its parents. Logs the reason and the fix when
+## that fails.
+func _make_dir(path: String) -> bool:
+	var err := DirAccess.make_dir_recursive_absolute(path)
+	if err == OK or DirAccess.dir_exists_absolute(path):
+		return true
+	log_line("Could not create the folder %s (%s). Free up disk space and check that this account may write there." % [path, error_string(err)], COLOR_ERR)
+	return false
+
+
 func _unzip_in_place(zip_path: String, dest_dir: String) -> bool:
 	# System unzip preserves the executable bits inside the .app bundle.
 	var unzip := _find_on_path("unzip") if OS.get_name() != "Windows" else ""
 	if not unzip.is_empty():
 		var code := await run_process(unzip, ["-o", "-q", zip_path, "-d", dest_dir])
 		if code != 0:
-			log_line("unzip failed.", COLOR_ERR)
+			if not _cancel_requested:
+				log_line("Could not unpack %s (unzip exit code %d). The disk may be full: free up space and build again." % [zip_path.get_file(), code], COLOR_ERR)
 			return false
 	else:
 		# No unzip on this host (Windows, minimal Linux): Godot's own reader,
 		# then put the executable bits back on the bundle's binaries by hand.
 		var reader := ZIPReader.new()
 		if reader.open(zip_path) != OK:
-			log_line("Could not open %s" % zip_path, COLOR_ERR)
+			log_line("Could not open %s. The export may be damaged: build again, and free up disk space if it keeps failing." % zip_path, COLOR_ERR)
 			return false
 		var unpacked := PackedStringArray()
 		for f in reader.get_files():
+			# Never write outside dest_dir, whatever the archive claims.
+			if f.is_absolute_path() or ".." in f.replace("\\", "/").split("/"):
+				log_line("Skipped '%s' in %s: it points outside the folder." % [f, zip_path.get_file()], COLOR_WARN)
+				continue
 			var target := dest_dir.path_join(f)
 			if f.ends_with("/"):
-				DirAccess.make_dir_recursive_absolute(target)
+				if not _make_dir(target):
+					reader.close()
+					return false
 				continue
-			DirAccess.make_dir_recursive_absolute(target.get_base_dir())
+			if not _make_dir(target.get_base_dir()):
+				reader.close()
+				return false
 			var fa := FileAccess.open(target, FileAccess.WRITE)
+			if fa == null:
+				log_line("Could not write %s (%s). Free up disk space and try again." % [target, error_string(FileAccess.get_open_error())], COLOR_ERR)
+				reader.close()
+				return false
 			fa.store_buffer(reader.read_file(f))
 			fa.close()
 			unpacked.append(target)
@@ -2225,31 +2845,35 @@ func _rename_app_bundle(depot_dir: String, base_name: String) -> bool:
 		return true
 	var err := DirAccess.rename_absolute(depot_dir.path_join(bundles[0]), depot_dir.path_join(wanted))
 	if err != OK:
-		log_line("Could not rename '%s' to '%s' (error %d) – set the Steamworks launch option to '%s'." % [bundles[0], wanted, err, bundles[0]], COLOR_WARN)
+		log_line("Could not rename '%s' to '%s' (%s) – set the Steamworks launch option to '%s'." % [bundles[0], wanted, error_string(err), bundles[0]], COLOR_WARN)
 		return false
 	log_line("Renamed bundle '%s' → '%s' to match the launch option." % [bundles[0], wanted], COLOR_INFO)
 	return true
 
 
-func _write_app_build_vdf(path: String, p: Dictionary, build_dir: String, description: String) -> void:
+## Writes SteamCMD's app build script. Returns false (with the reason logged)
+## when the file cannot be written.
+func _write_app_build_vdf(path: String, p: Dictionary, build_dir: String, description: String) -> bool:
 	var lines: PackedStringArray = [
 		'"AppBuild"',
 		'{',
-		'\t"AppID" "%s"' % p["app_id"],
-		'\t"Desc" "%s"' % description.replace('"', "'"),
-		'\t"BuildOutput" "%s"' % build_dir.path_join("output"),
-		'\t"ContentRoot" "%s"' % build_dir.path_join("content"),
+		'\t"AppID" "%s"' % _vdf_value(str(p["app_id"]).strip_edges()),
+		'\t"Desc" "%s"' % _vdf_value(description),
+		'\t"BuildOutput" "%s"' % _vdf_value(build_dir.path_join("output")),
+		'\t"ContentRoot" "%s"' % _vdf_value(build_dir.path_join("content")),
 	]
 	var branch := _branch_name(p)
 	if not branch.is_empty():
-		lines.append('\t"SetLive" "%s"' % branch)
+		lines.append('\t"SetLive" "%s"' % _vdf_value(branch))
 	lines.append('\t"Depots"')
 	lines.append('\t{')
 	for d in p["depots"]:
+		var depot_id := str(d["depot_id"]).strip_edges()
+		var root := str(d["content_dir"]).strip_edges() if _is_folder_app(p) else build_dir.path_join("content").path_join(depot_id)
 		lines.append_array([
-			'\t\t"%s"' % d["depot_id"],
+			'\t\t"%s"' % _vdf_value(depot_id),
 			'\t\t{',
-			'\t\t\t"ContentRoot" "%s"' % (d["content_dir"] if _is_folder_app(p) else build_dir.path_join("content").path_join(d["depot_id"])),
+			'\t\t\t"ContentRoot" "%s"' % _vdf_value(root),
 			'\t\t\t"FileMapping"',
 			'\t\t\t{',
 			'\t\t\t\t"LocalPath" "*"',
@@ -2261,20 +2885,40 @@ func _write_app_build_vdf(path: String, p: Dictionary, build_dir: String, descri
 	lines.append('\t}')
 	lines.append('}')
 	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		log_line("Could not write %s (%s). Free up disk space and check that %s is writable." % [path, error_string(FileAccess.get_open_error()), path.get_base_dir()], COLOR_ERR)
+		return false
 	f.store_string("\n".join(lines))
 	f.close()
+	return true
 
 
-func _remove_dir_recursive(path: String) -> void:
+## A value for app_build.vdf: SteamCMD reads backslashes as escapes and a
+## quote would end the string, so paths use "/" and quotes become apostrophes.
+static func _vdf_value(text: String) -> String:
+	return text.replace("\\", "/").replace('"', "'")
+
+
+## Deletes [param path] with everything in it. Returns false when something
+## could not be removed (on Windows: a file of a game that is still running).
+## Symlinks are removed, never followed.
+func _remove_dir_recursive(path: String) -> bool:
 	if not DirAccess.dir_exists_absolute(path):
-		return
+		return true
 	var dir := DirAccess.open(path)
+	if dir == null:
+		return false
 	dir.include_hidden = true
 	for f in dir.get_files():
 		DirAccess.remove_absolute(path.path_join(f))
 	for d in dir.get_directories():
-		_remove_dir_recursive(path.path_join(d))
+		var child := path.path_join(d)
+		if dir.is_link(child):
+			DirAccess.remove_absolute(child)
+		else:
+			_remove_dir_recursive(child)
 	DirAccess.remove_absolute(path)
+	return not DirAccess.dir_exists_absolute(path)
 
 
 # ---------------------------------------------------------------------------
@@ -2333,16 +2977,15 @@ func _current_guard_code() -> String:
 
 ## SteamCMD login arguments. After one successful login SteamCMD caches its
 ## session; with a shared secret every later login also gets a fresh code, so
-## the flow never needs manual input again.
+## the flow never needs manual input again. The password is left out on
+## purpose: any process can read a command line, so SteamCMD gets it on stdin
+## when it asks (see [method _on_password_prompt]).
 func _steam_login_args() -> PackedStringArray:
 	var args := PackedStringArray()
 	var code := _current_guard_code()
 	if not code.is_empty():
 		args.append_array(["+set_steam_guard_code", code])
 	args.append_array(["+login", %SteamUsername.text.strip_edges()])
-	var password: String = %SteamPassword.text
-	if not password.is_empty():
-		args.append(password)
 	return args
 
 
@@ -2391,17 +3034,27 @@ func _on_steam_login_pressed() -> void:
 		_set_field_error(%SteamGuardCode, false)
 		if not %RememberPassword.button_pressed:
 			%SteamPassword.text = ""
+		_persist_secrets()
 		# Forced so a changed avatar or persona shows up after every explicit login.
 		%SteamProfile.fetch(_login_verified_user, steamcmd, true)
 	else:
 		log_line("Steam sign-in failed (exit code %d)." % code, COLOR_ERR)
-		if _password_prompt_seen:
+		if _seen_issues.has("invalid_password"):
+			%SteamStatusLabel.text = "Wrong password"
+			_set_field_error(%SteamPassword, true)
+			%SteamPassword.grab_focus()
+			_explain_known_issues("", false)
+		elif _seen_issues.has("rate_limit"):
+			%SteamStatusLabel.text = "Too many attempts – wait before retrying"
+			_explain_known_issues("", false)
+		elif _password_prompt_seen:
 			%SteamStatusLabel.text = "Password needed"
 			log_line("Enter the password and press Sign in.", COLOR_INFO)
 			_set_field_error(%SteamPassword, true)
 			%SteamPassword.grab_focus()
 		elif not _explain_guard_failure(typed_code):
 			%SteamStatusLabel.text = "Sign-in failed"
+			_explain_known_issues(STEAMCMD_FALLBACK, false)
 	log_step_done(code == 0)
 	_set_busy(false)
 	_refresh_setup_state()
@@ -2417,9 +3070,17 @@ func _explain_guard_failure(code_supplied: bool) -> bool:
 		return false
 	var status: String
 	var msg: String
-	if code_supplied or _guard_code_sent:
+	var focus: LineEdit = %SteamGuardCode
+	if not %SteamSharedSecret.text.strip_edges().is_empty() and not _guard_wait_seen:
+		# Every login passes a code generated from the secret, so a rejection
+		# means the secret or the clock is wrong, not a typing mistake.
+		status = "Generated code rejected"
+		msg = "Steam did not accept the code generated from the shared secret. Make sure the computer's date and time are set automatically (the codes depend on the exact time), and that the field holds the account's base64 shared_secret, not the revocation code (R12345). Clear the shared secret to use a code from the Steam mobile app or email instead."
+		_set_field_error(%SteamSharedSecret, true)
+		focus = %SteamSharedSecret
+	elif code_supplied or _guard_code_sent:
 		status = "Steam Guard code rejected"
-		msg = "Steam Guard code not accepted. Enter a new code and press Sign in."
+		msg = "Steam Guard code not accepted. Codes change every 30 seconds and email codes expire: enter the newest code and press Sign in."
 		_set_field_error(%SteamGuardCode, true)
 	elif _guard_wait_seen:
 		status = "Not approved in time"
@@ -2431,8 +3092,8 @@ func _explain_guard_failure(code_supplied: bool) -> bool:
 	log_line(msg, COLOR_INFO)
 	if not %SetupPage.visible:
 		_show_project(-1)  # Put the code field on screen.
-	%SteamGuardCode.grab_focus()
-	%SteamGuardCode.select_all()
+	focus.grab_focus()
+	focus.select_all()
 	return true
 
 
@@ -2473,7 +3134,7 @@ func _submit_guard_code() -> void:
 		%SteamGuardCode.grab_focus()
 		return
 	if not _write_child_stdin(code):
-		log_line("SteamCMD is no longer waiting for a code.", COLOR_ERR)
+		log_line("SteamCMD is no longer waiting for a code. Press Sign in to start again; the code in the field is sent along.", COLOR_ERR)
 		_end_guard_wait()
 		return
 	_guard_code_sent = true
@@ -2539,7 +3200,7 @@ func _on_steam_sign_out_pressed() -> void:
 			removed += 1
 			log_line("Removed %s" % path, COLOR_INFO)
 		else:
-			log_line("Could not remove %s" % path, COLOR_WARN)
+			log_line("Could not remove %s. Quit the app and delete that file by hand to finish signing out." % path, COLOR_WARN)
 	if removed == 0:
 		log_line("No cached SteamCMD session found.", COLOR_INFO)
 	_login_verified = false
@@ -2738,7 +3399,8 @@ func _on_download_steamcmd_pressed() -> void:
 		return
 	var url: String = STEAMCMD_URLS[host]
 	var dir := _steamcmd_install_dir()
-	DirAccess.make_dir_recursive_absolute(dir)
+	if not _make_dir(dir):
+		return
 	_steamcmd_archive = dir.path_join(url.get_file())
 
 	_set_busy(true)
@@ -2747,12 +3409,14 @@ func _on_download_steamcmd_pressed() -> void:
 	_steamcmd_http.download_file = _steamcmd_archive
 	var err := _steamcmd_http.request(url)
 	if err != OK:
-		log_line("Could not start the download (error %d)." % err, COLOR_ERR)
+		log_line("Could not start the download (%s). Check your internet connection and try again, or download SteamCMD yourself from %s and pick it with the folder button." % [error_string(err), STEAMCMD_DOCS_URL], COLOR_ERR)
 		log_step_done(false)
 		_set_busy(false)
 		return
 
 	_steamcmd_downloading = true
+	var last_bytes := -1
+	var last_progress_ms := Time.get_ticks_msec()
 	while _steamcmd_downloading:
 		var got := _steamcmd_http.get_downloaded_bytes()
 		var total := _steamcmd_http.get_body_size()
@@ -2760,6 +3424,20 @@ func _on_download_steamcmd_pressed() -> void:
 			%SteamCmdStatusLabel.text = "Downloading…  %d%%" % int(100.0 * got / total)
 		else:
 			%SteamCmdStatusLabel.text = "Downloading…  %d KB" % (got >> 10)
+		# The request has no timeout (the archive can take a while), so a
+		# connection that stops delivering would otherwise hang here forever.
+		if got != last_bytes:
+			last_bytes = got
+			last_progress_ms = Time.get_ticks_msec()
+		elif Time.get_ticks_msec() - last_progress_ms > DOWNLOAD_STALL_MS:
+			_steamcmd_http.cancel_request()
+			_steamcmd_downloading = false
+			DirAccess.remove_absolute(_steamcmd_archive)
+			log_line("The SteamCMD download stalled (no data for %.0f s). Check your internet connection, VPN or firewall and press Download SteamCMD again, or download it yourself from %s and pick it with the folder button." % [DOWNLOAD_STALL_MS / 1000.0, STEAMCMD_DOCS_URL], COLOR_ERR)
+			log_step_done(false, "stalled")
+			_refresh_setup_state()
+			_set_busy(false)
+			return
 		await get_tree().process_frame
 	# cancel_request() never emits request_completed, so finish up here.
 	if _cancel_requested:
@@ -2772,9 +3450,9 @@ func _on_download_steamcmd_pressed() -> void:
 func _on_steamcmd_download_completed(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
 	_steamcmd_downloading = false
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
-		var why := ("HTTP %d" % code) if result == HTTPRequest.RESULT_SUCCESS else ("result %d" % result)
-		log_line("SteamCMD download failed (%s)." % why, COLOR_ERR)
-		log_step_done(false, why)
+		var why := ("Valve's server answered HTTP %d" % code) if result == HTTPRequest.RESULT_SUCCESS else KnownIssues.http_result_text(result)
+		log_line("SteamCMD download failed: %s. Press Download SteamCMD to try again, or download it yourself from %s and pick it with the folder button." % [why, STEAMCMD_DOCS_URL], COLOR_ERR)
+		log_step_done(false, "HTTP %d" % code if result == HTTPRequest.RESULT_SUCCESS else "no download")
 		DirAccess.remove_absolute(_steamcmd_archive)
 		_refresh_setup_state()
 		_set_busy(false)
@@ -2804,7 +3482,7 @@ func _on_steamcmd_download_completed(result: int, code: int, _headers: PackedStr
 		return
 	var exe := dir.path_join("steamcmd.exe" if is_windows else "steamcmd.sh")
 	if not ok or not FileAccess.file_exists(exe):
-		log_line("Could not unpack SteamCMD into %s." % dir, COLOR_ERR)
+		log_line("Could not unpack SteamCMD into %s. The download may be damaged or the disk full: free up space and press Download SteamCMD again." % dir, COLOR_ERR)
 		log_step_done(false)
 		_refresh_setup_state()
 		_set_busy(false)
@@ -2815,7 +3493,7 @@ func _on_steamcmd_download_completed(result: int, code: int, _headers: PackedStr
 	# client. Doing it now also proves the thing launches on this machine.
 	log_step("Running SteamCMD once so it can update itself")
 	%SteamCmdStatusLabel.text = "Updating…"
-	var boot := await run_process(exe, ["+quit"])
+	var boot := await _run_steamcmd_boot(exe)
 	if _bail_if_cancelled():
 		_set_steamcmd_path(exe)  # Unpacked fine; only the self-update was cut short.
 		return
@@ -2831,7 +3509,7 @@ func _update_steamcmd(exe: String) -> void:
 	log_step("Updating SteamCMD")
 	%SteamCmdStatusLabel.text = "Updating…"
 	_set_status_dot(%SteamCmdDot, COLOR_WARN)
-	var boot := await run_process(exe, ["+quit"])
+	var boot := await _run_steamcmd_boot(exe)
 	if _bail_if_cancelled():
 		_refresh_setup_state()
 		return
@@ -2840,11 +3518,24 @@ func _update_steamcmd(exe: String) -> void:
 	_set_busy(false)
 
 
+## Runs "steamcmd +quit" and returns its exit code. A run that just updated
+## SteamCMD can end with a non-zero code although the update worked; one more
+## run then tells whether the fresh copy really starts.
+func _run_steamcmd_boot(exe: String) -> int:
+	var res := await run_process_capture(exe, PackedStringArray(["+quit"]))
+	if res["code"] != 0 and not _cancel_requested and str(res["output"]).to_lower().contains("update complete"):
+		log_line("SteamCMD updated itself; running it once more to finish.", COLOR_INFO)
+		res = await run_process_capture(exe, PackedStringArray(["+quit"]))
+	return res["code"]
+
+
 ## Logs the outcome of a "steamcmd +quit" run and closes the open step.
 func _report_steamcmd_boot(code: int, ok_message: String) -> void:
 	if code != 0:
-		log_line("SteamCMD exited with code %d – check the output above." % code, COLOR_WARN)
-		_log_steamcmd_runtime_hint()
+		log_line("SteamCMD exited with code %d." % code, COLOR_WARN)
+		if not _explain_known_issues("", false):
+			_log_steamcmd_runtime_hint()
+			log_line("→ The reason is usually in SteamCMD's last lines above. If it does not make sense, press the copy button in the console header and paste the result to an AI or on Discord.", COLOR_INFO)
 	else:
 		log_line(ok_message, COLOR_OK)
 	log_step_done(code == 0)
@@ -2930,17 +3621,22 @@ static func _steamcmd_launch(exe: String, args: PackedStringArray) -> Dictionary
 ## Runs [param exe] with [param args] and returns its exit code once done.
 ## Output is streamed to the console as it arrives. Passwords are masked.
 ## SteamCMD runs with its own HOME, see [method _steamcmd_launch].
-func run_process(exe: String, args: PackedStringArray) -> int:
+## [param tool] (KnownIssues.GODOT, …) picks the known problems its output
+## is checked against; SteamCMD is recognised by name.
+func run_process(exe: String, args: PackedStringArray, tool := "") -> int:
+	var program := exe
+	if tool.is_empty() and is_steamcmd_exe(program):
+		tool = KnownIssues.STEAMCMD
 	var launch := _steamcmd_launch(exe, args)
 	exe = launch["exe"]
 	args = launch["args"]
 	log_cmd(exe, _redact(args))
+	_child_tool = tool
+	_seen_issues.clear()
 
 	var info := OS.execute_with_pipe(exe, args, false)
 	if info.is_empty():
-		log_line("Failed to start process.", COLOR_ERR)
-		if is_steamcmd_exe(launch["exe"]) or (args.size() > 1 and is_steamcmd_exe(args[1])):
-			_log_steamcmd_runtime_hint()
+		_log_start_failure(program)
 		return -1
 
 	var pid: int = info["pid"]
@@ -2998,12 +3694,68 @@ func _cancel_running() -> void:
 	_cancel_requested = true
 	%BuildPublishButton.disabled = true  # until _set_busy(false) runs
 	log_line("Stopping…", COLOR_WARN)
-	if _child_pid > 0 and OS.is_process_running(_child_pid):
-		OS.kill(_child_pid)
-		_child_killed = true
+	_kill_child()
 	if _steamcmd_downloading:
 		_steamcmd_http.cancel_request()
 		_steamcmd_downloading = false
+
+
+## Kills the child run_process is waiting on, together with everything it
+## started. Does nothing when no child runs.
+func _kill_child() -> void:
+	if _child_pid > 0 and OS.is_process_running(_child_pid):
+		_kill_process_tree(_child_pid)
+		_child_killed = true
+
+
+## Kills [param pid] and all its descendants. SteamCMD's launchers
+## (steamcmd.sh, the Homebrew wrapper) start the real binary as a child
+## instead of replacing themselves, so killing only the launcher would leave
+## SteamCMD running on its own with nobody reading its output.
+static func _kill_process_tree(pid: int) -> void:
+	if OS.get_name() == "Windows":
+		OS.execute("taskkill", PackedStringArray(["/F", "/T", "/PID", str(pid)]))
+		if OS.is_process_running(pid):
+			OS.kill(pid)
+		return
+	# Collected while the parent lives: orphans are re-parented and lost.
+	var family := _descendant_pids(pid)
+	OS.kill(pid)
+	for child in family:
+		OS.kill(child)
+
+
+## Every process below [param pid], children first, via `pgrep -P`. Empty
+## when pgrep is not available.
+static func _descendant_pids(pid: int) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var queue: Array[int] = [pid]
+	while not queue.is_empty() and out.size() < 64:
+		var parent: int = queue.pop_front()
+		var output: Array = []
+		if OS.execute("pgrep", PackedStringArray(["-P", str(parent)]), output) != 0 or output.is_empty():
+			continue
+		for line in str(output[0]).split("\n", false):
+			var child := line.strip_edges()
+			if child.is_valid_int() and not out.has(int(child)):
+				out.append(int(child))
+				queue.append(int(child))
+	return out
+
+
+## [param program] could not be launched at all: say which one and what
+## usually causes it on this OS.
+func _log_start_failure(program: String) -> void:
+	log_line("Could not start %s." % program, COLOR_ERR)
+	if not FileAccess.file_exists(program):
+		log_line("The file is gone (moved, renamed or deleted). Pick it again with the folder button.", COLOR_INFO)
+		return
+	if is_steamcmd_exe(program):
+		_log_steamcmd_runtime_hint()
+	if not _is_executable_file(program):
+		log_line("It is not marked as executable. Run  chmod +x \"%s\"  in a terminal and try again." % program, COLOR_INFO)
+	elif OS.get_name() == "macOS":
+		log_line("macOS may be blocking it because it was downloaded from the internet. Open it once from Finder (right-click → Open), or run  xattr -dr com.apple.quarantine \"%s\"  in Terminal." % program, COLOR_INFO)
 
 
 ## After an await: true when the user pressed stop meanwhile. Closes the open
@@ -3062,7 +3814,13 @@ func _pipe_reader(pipe: FileAccess, is_stderr: bool) -> void:
 		idle_ms += 10
 
 
+## Terminal colour/style codes. Godot's export progress prints them even into
+## a pipe, where they would show up as "[90m[1m" noise in the console.
+static var _ansi_re := RegEx.create_from_string("\\x1b\\[[0-9;?]*[A-Za-z]")
+
+
 func _emit_pipe_line(line: String, is_stderr: bool) -> void:
+	line = _mask_sent_password(_ansi_re.sub(line, "", true))
 	if line.is_empty():
 		return
 	log_out(line, is_stderr)
@@ -3070,11 +3828,49 @@ func _emit_pipe_line(line: String, is_stderr: bool) -> void:
 		_capture_line(line)
 	_check_guard_prompt(line)
 	_check_guard_failure(line)
+	_check_known_issue(line)
+
+
+## Notes which KnownIssues entry [param line] matches, once per process.
+func _check_known_issue(line: String) -> void:
+	var issue := KnownIssues.match_line(line, _child_tool)
+	if not issue.is_empty() and not _seen_issues.has(issue["id"]):
+		_seen_issues.append(issue["id"])
+
+
+## After a failed child process: logs the fix for every known problem its
+## output showed, most relevant first, or [param fallback] when nothing was
+## recognised ("" for none). The leading fix also goes into the banner when
+## [param banner] is set (the failed run belongs to the app on screen).
+## Returns true when a known problem was recognised.
+func _explain_known_issues(fallback: String, banner := true) -> bool:
+	var hints := PackedStringArray()
+	var minor := PackedStringArray()
+	for id in _seen_issues:
+		var issue := KnownIssues.get_issue(id)
+		if issue.is_empty():
+			continue
+		if issue.get("minor", false):
+			minor.append(issue["hint"])
+		else:
+			hints.append(issue["hint"])
+	hints.append_array(minor)
+	if hints.is_empty():
+		if not fallback.is_empty():
+			log_line("→ " + fallback, COLOR_INFO)
+		return false
+	for hint in hints:
+		log_line("→ How to fix: " + hint, COLOR_WARN)
+	if banner and _selected_index >= 0:
+		_run_status = { "text": hints[0], "color": COLOR_ERR }
+		_refresh_banners()
+	return true
 
 
 ## A partial line that went quiet: shown like any output, then checked for a
 ## Steam Guard prompt so the user can answer while SteamCMD waits.
 func _emit_pipe_prompt(text: String, is_stderr: bool) -> void:
+	text = _mask_sent_password(_ansi_re.sub(text, "", true))
 	if text.strip_edges().is_empty():
 		return
 	log_out(text, is_stderr)
@@ -3095,8 +3891,9 @@ func _check_guard_prompt(text: String) -> void:
 
 
 ## Called (on the main thread) when the running child asked for the account
-## password: SteamCMD has no cached session and got none on the command line.
-## The saved password is written once; without one (or when it was refused)
+## password: SteamCMD has no cached session. This is the only way the
+## password reaches SteamCMD, since it is kept off the command line.
+## The entered password is written once; without one (or when it was refused)
 ## the child is stopped, since it would otherwise wait on the prompt forever.
 func _on_password_prompt() -> void:
 	if _child_stdio == null:
@@ -3105,16 +3902,14 @@ func _on_password_prompt() -> void:
 	_session_lost()
 	var password: String = %SteamPassword.text
 	if not password.is_empty() and not _password_sent:
-		log_line("Steam asked for the password – sending the saved one.", COLOR_INFO)
+		log_line("Steam asked for the password – sending it.", COLOR_INFO)
 		_password_sent = _write_child_stdin(password)
 		return
 	if _password_sent:
-		log_line("Steam did not accept the saved password. Check it on the SteamCMD page.", COLOR_ERR)
+		log_line("Steam did not accept the password. Check it on the SteamCMD page.", COLOR_ERR)
 	else:
-		log_line("SteamCMD asked for the password of %s and none is saved. Enter it on the SteamCMD page (Remember keeps it)." % %SteamUsername.text.strip_edges(), COLOR_WARN)
-	if _child_pid > 0 and OS.is_process_running(_child_pid):
-		OS.kill(_child_pid)
-		_child_killed = true
+		log_line("SteamCMD asked for the password of %s and none is entered. Enter it on the SteamCMD page (Remember keeps it)." % %SteamUsername.text.strip_edges(), COLOR_WARN)
+	_kill_child()
 
 
 func _check_guard_failure(text: String) -> void:
@@ -3141,21 +3936,28 @@ func run_process_capture(exe: String, args: PackedStringArray) -> Dictionary:
 	return {"code": code, "output": "\n".join(_capture)}
 
 
-## Hides the password and guard code in the echoed command line.
+## Hides the Steam Guard code in the echoed command line. The password is
+## never on it (see [method _steam_login_args]).
 func _redact(args: PackedStringArray) -> PackedStringArray:
 	var out := PackedStringArray()
 	var i := 0
 	while i < args.size():
 		out.append(args[i])
-		if args[i] == "+set_steam_guard_code" or args[i] == "+login":
-			if args[i] == "+login" and i + 1 < args.size():
-				out.append(args[i + 1])  # username is fine to show
-				i += 1
-			if i + 1 < args.size() and not args[i + 1].begins_with("+"):
-				out.append("•••••")
-				i += 1
+		if args[i] == "+set_steam_guard_code" and i + 1 < args.size():
+			out.append("•••••")
+			i += 1
 		i += 1
 	return out
+
+
+## [param text] with the password masked once it was written to the child,
+## in case the child echoes its input. Short passwords are left alone: they
+## would mask ordinary words in the output.
+func _mask_sent_password(text: String) -> String:
+	var password: String = %SteamPassword.text
+	if not _password_sent or password.length() < 6:
+		return text
+	return text.replace(password, "•••••")
 
 
 # ---------------------------------------------------------------------------
@@ -3179,10 +3981,11 @@ func _clamp_sidebar_split(offset: int) -> void:
 
 ## Dragging the console divider past the point where it stops moving closes
 ## the console (VS Code style) or, on the other side, expands it (see
-## _set_console_expanded). The splitter clamps split_offset at the minimums,
-## so the overshoot is only visible in the raw cursor position: the cursor has
-## to be SPLIT_OVERSHOOT past the divider while the neighbouring pane already
-## sits at its minimum width. A short nudge at the edge does nothing.
+## _set_console_expanded). The splitter stops the divider at the console's
+## minimum and at the main view's real minimum (set in
+## _apply_console_visibility), so the overshoot is only visible in the raw
+## cursor position: the cursor has to be SPLIT_OVERSHOOT past the stopped
+## divider. A short nudge at the edge does nothing.
 func _input(event: InputEvent) -> void:
 	if not _console_splitter_dragging or not event is InputEventMouseMotion:
 		return
@@ -3190,9 +3993,8 @@ func _input(event: InputEvent) -> void:
 	var local_x: float = content.make_canvas_position_local(event.position).x
 	var divider_x: float = %MainView.size.x
 	var console_at_min: bool = %ConsoleDock.size.x <= %ConsoleDock.get_combined_minimum_size().x + 1.0
-	# The main view's scroll container hides its content width, so the splitter
-	# lets it shrink below the real minimum. Measure the overshoot from that
-	# real minimum, not from wherever the divider happens to be.
+	# The main view's scroll container hides its content width, so its real
+	# minimum is measured from the content (the divider stops right there).
 	var main_min := _main_view_min_width()
 	var main_at_min: bool = %MainView.size.x <= main_min + 1.0
 	if console_at_min and local_x > divider_x + SPLIT_OVERSHOOT:
@@ -3209,9 +4011,10 @@ func _input(event: InputEvent) -> void:
 func _set_console_expanded(on: bool) -> void:
 	var content: HSplitContainer = %ConsoleDock.get_parent()
 	if on and not _console_expanded:
-		# If a drag squished the main view below its real minimum, remember the
-		# divider at that minimum instead so the restored layout is not clipped
-		# and sits a full SPLIT_OVERSHOOT away from expanding again.
+		# Safety net: the main view normally cannot go below its real minimum,
+		# but if it was squished anyway, remember the divider at that minimum so
+		# the restored layout is not clipped and sits a full SPLIT_OVERSHOOT
+		# away from expanding again.
 		content.clamp_split_offset()
 		var squish := maxf(0.0, _main_view_min_width() - %MainView.size.x)
 		_split_offset_before_expand = content.split_offset + int(squish)
@@ -3566,15 +4369,122 @@ func _clear_console() -> void:
 	_set_console_autoscroll(true)
 
 
+## Console header button: puts [method _diagnostics_report] on the clipboard
+## so a stuck user can paste one message (to an AI or on Discord) instead of
+## answering questions.
 func _copy_console() -> void:
-	DisplayServer.clipboard_set(%Console.get_parsed_text())
+	DisplayServer.clipboard_set(_diagnostics_report())
 	var button: Button = %CopyConsoleButton
 	button.icon = ICON_CHECK
 	button.tooltip_text = "Copied"
 	await get_tree().create_timer(1.0).timeout
 	if is_instance_valid(button):
 		button.icon = ICON_COPY
-		button.tooltip_text = "Copy all output"
+		button.tooltip_text = COPY_TOOLTIP
+
+
+## Plain-text support report: a short intro for an AI, app and OS versions,
+## the SteamCMD and account setup, the selected app with its presets and
+## depots, free disk space and the console. Run through [method _redact_report],
+## so it is safe to paste in public.
+func _diagnostics_report() -> String:
+	var out := PackedStringArray()
+	var app_version := str(ProjectSettings.get_setting("application/config/version", ""))
+	out.append("I use %s, a desktop app that exports Godot projects and uploads them to Steam with SteamCMD. Below are my setup and the console output. Help me find and fix the problem." % _app_name())
+	out.append("")
+	out.append("%s diagnostics · %s" % [_app_name(), Time.get_datetime_string_from_system()])
+	out.append("App version: %s · engine %s" % [app_version if not app_version.is_empty() else "dev", Engine.get_version_info()["string"]])
+	out.append("OS: %s %s (%s) · locale %s · UI scale %.2f" % [OS.get_name(), OS.get_version(), Engine.get_architecture_name(), OS.get_locale(), get_window().content_scale_factor])
+	var free := _free_disk_bytes()
+	out.append("Data folder: %s · free space %s" % [OS.get_user_data_dir(), String.humanize_size(free) if free >= 0 else "unknown"])
+	out.append("")
+
+	var typed: String = %SteamCmdBinary.text.strip_edges()
+	var resolved := _resolve_steamcmd(typed)
+	out.append("SteamCMD: field '%s' → %s" % [typed, resolved if not resolved.is_empty() else "NOT FOUND"])
+	if not steamcmd_home().is_empty():
+		out.append("SteamCMD HOME: %s (exists: %s)" % [steamcmd_home(), _yes_no(DirAccess.dir_exists_absolute(steamcmd_home()))])
+	var guard := "none"
+	if not %SteamSharedSecret.text.strip_edges().is_empty():
+		guard = "shared secret (%s)" % ("valid" if not steam_totp(%SteamSharedSecret.text).is_empty() else "INVALID")
+	elif not %SteamGuardCode.text.strip_edges().is_empty():
+		guard = "code typed"
+	out.append("Account: username set %s · signed in %s · password entered %s (remembered %s) · Steam Guard %s" % [
+		_yes_no(not %SteamUsername.text.strip_edges().is_empty()), _yes_no(_login_ok()),
+		_yes_no(not %SteamPassword.text.is_empty()), _yes_no(%RememberPassword.button_pressed), guard])
+	out.append("Apps in the list: %d · busy: %s" % [_projects.size(), _yes_no(_is_busy)])
+	out.append("")
+
+	if _selected_index >= 0 and _selected_index < _projects.size():
+		var p := _projects[_selected_index]
+		var folder := _is_folder_app(p)
+		var path := str(p["path"])
+		out.append("Selected app: '%s' (%s)" % [p["name"], "content folder" if folder else "Godot project"])
+		out.append("  Folder: %s (exists: %s%s)" % [path, _yes_no(DirAccess.dir_exists_absolute(path)),
+			"" if folder else ", project.godot: %s, imported: %s" % [_yes_no(_project_file_exists(p)), _yes_no(DirAccess.dir_exists_absolute(path.path_join(".godot")))]])
+		out.append("  App ID: '%s' · branch: '%s'" % [p.get("app_id", ""), p.get("branch", "")])
+		if not folder:
+			var binary := str(p.get("godot_binary", ""))
+			var cached: Dictionary = _version_cache.get(binary, {})
+			out.append("  Godot: project needs %s · binary %s (exists: %s, executable: %s, version: %s)" % [
+				_read_required_godot_version(path), binary if not binary.is_empty() else "(none)",
+				_yes_no(FileAccess.file_exists(binary)), _yes_no(FileAccess.file_exists(binary) and _is_executable_file(binary)),
+				cached.get("version", "not probed")])
+			out.append("  C# project: %s" % _yes_no(_is_csharp_project(path)))
+			var presets := PackedStringArray()
+			for i in _preset_names.size():
+				presets.append("'%s' [%s]" % [_preset_names[i], _preset_platforms[i]])
+			out.append("  Export presets: %s" % (", ".join(presets) if not presets.is_empty() else "NONE"))
+		var depots: Array = p["depots"]
+		if depots.is_empty():
+			out.append("  Depots: none")
+		for i in depots.size():
+			var d: Dictionary = depots[i]
+			if folder:
+				var dir := str(d.get("content_dir", "")).strip_edges()
+				out.append("  Depot %d: id '%s' · folder %s (exists: %s)" % [i + 1, d.get("depot_id", ""), dir, _yes_no(DirAccess.dir_exists_absolute(dir))])
+			else:
+				var preset := str(d.get("preset", ""))
+				var kind := _platform_kind(_preset_names.find(preset))
+				out.append("  Depot %d: id '%s' · preset '%s' (%s) · executable '%s'" % [i + 1, d.get("depot_id", ""), preset,
+					"%s, %s" % ["found", kind if not kind.is_empty() else "unknown platform"] if _preset_names.has(preset) else "MISSING", d.get("output", "")])
+	else:
+		out.append("Selected app: none (SteamCMD page)")
+	out.append("")
+
+	var lines: PackedStringArray = %Console.get_parsed_text().split("\n")
+	var first := maxi(0, lines.size() - REPORT_CONSOLE_LINES)
+	out.append("--- Console (last %d of %d lines) ---" % [lines.size() - first, lines.size()] if first > 0 else "--- Console ---")
+	out.append_array(lines.slice(first))
+	return _redact_report("\n".join(out))
+
+
+## [param text] with the password, shared secret, Guard code, account and
+## persona names and the home folder replaced. Values shorter than 3
+## characters are left alone so they do not blank out random words.
+func _redact_report(text: String) -> String:
+	for pair: Array in [
+		[%SteamPassword.text, "<password>"],
+		[%SteamSharedSecret.text.strip_edges(), "<shared secret>"],
+		[%SteamGuardCode.text.strip_edges(), "<code>"],
+	]:
+		if str(pair[0]).length() >= 3:
+			text = text.replacen(pair[0], pair[1])
+	var home := _home_dir()
+	if home.length() > 1:
+		text = text.replace(home, "~").replace(home.replace("\\", "/"), "~")
+	for pair: Array in [
+		[%SteamUsername.text.strip_edges(), "<account>"],
+		[_login_verified_user, "<account>"],
+		[_login_persona, "<persona>"],
+	]:
+		if str(pair[0]).length() >= 3:
+			text = text.replacen(pair[0], pair[1])
+	return text
+
+
+static func _yes_no(value: bool) -> String:
+	return "yes" if value else "no"
 
 
 func _set_console_autoscroll(on: bool) -> void:
@@ -3616,6 +4526,7 @@ func _set_busy(busy: bool) -> void:
 	%BuildPublishButton.disabled = false
 	%BuildPublishButton.icon = ICON_STOP if busy else ICON_PLAY
 	%BuildPublishButton.tooltip_text = STOP_TOOLTIP if busy else BUILD_TOOLTIP
+	%BuildPublishButton.accessibility_name = %BuildPublishButton.tooltip_text
 	%BuildDescription.editable = not busy
 	%SteamLoginButton.disabled = busy and not _awaiting_guard_code
 	%SteamSignOutButton.disabled = busy
@@ -3640,7 +4551,9 @@ func _set_busy(busy: bool) -> void:
 func _read_project_name(dir: String) -> String:
 	var cfg := ConfigFile.new()
 	if cfg.load(dir.path_join("project.godot")) == OK:
-		return cfg.get_value("application", "config/name", dir.get_file())
+		var project_name := _as_str(cfg.get_value("application", "config/name", "")).strip_edges()
+		if not project_name.is_empty():
+			return project_name
 	return dir.get_file()
 
 
@@ -3649,31 +4562,105 @@ func _save_projects() -> void:
 	for i in _projects.size():
 		for key in _projects[i]:
 			cfg.set_value("project_%d" % i, key, _projects[i][key])
-	cfg.save(PROJECTS_FILE)
+	_report_save(cfg.save(PROJECTS_FILE), PROJECTS_FILE)
 
 
-func _load_projects() -> void:
+## Loads the app list. A file that cannot be parsed is copied aside before
+## anything else happens, so the next save cannot wipe the user's apps; a
+## single broken entry is skipped. [param path] is only changed by tests.
+func _load_projects(path := PROJECTS_FILE) -> void:
 	_projects.clear()
+	if not FileAccess.file_exists(path):
+		return
 	var cfg := ConfigFile.new()
-	if cfg.load(PROJECTS_FILE) != OK:
+	var err := cfg.load(path)
+	if err != OK:
+		var backup := _backup_broken_file(path)
+		log_line("Your app list could not be read (%s), so it starts empty. %s To get the apps back, fix that file in a text editor and rename it back to %s while this app is closed, or add the apps again." % [
+			error_string(err),
+			("The old file was kept as %s." % backup) if not backup.is_empty() else "",
+			path.get_file()], COLOR_ERR)
 		return
 	for section in cfg.get_sections():
-		var p := {}
+		var raw := {}
 		for key in cfg.get_section_keys(section):
-			p[key] = cfg.get_value(section, key)
-		if not p.has("depots"):
-			p["depots"] = []
-		if not p.has("kind"):
-			p["kind"] = "godot"
-		if not _is_folder_app(p):
-			for d in p["depots"]:
-				d["output"] = _strip_known_extension(str(d.get("output", "")))
+			raw[key] = cfg.get_value(section, key)
+		var p := _sanitize_project(raw)
+		if p.is_empty():
+			log_line("Skipped a broken entry [%s] in %s: it has no folder. Add that app again." % [section, ProjectSettings.globalize_path(path)], COLOR_WARN)
+			continue
 		_projects.append(p)
 
 
-## The password and shared secret are only persisted when their "Remember"
-## toggles are on; otherwise they live in memory until the app quits. Both are
-## plain text in user://settings.cfg – keep that file private.
+## [param raw] (one projects.cfg section) with every field the app reads
+## coerced to its expected type, so a hand-edited or damaged file cannot
+## crash the UI. {} when the entry has no folder at all.
+func _sanitize_project(raw: Dictionary) -> Dictionary:
+	var path := _as_str(raw.get("path")).strip_edges()
+	if path.is_empty():
+		return {}
+	var p := raw.duplicate(true)
+	for key in ["name", "godot_binary", "app_id", "branch", "description"]:
+		p[key] = _as_str(raw.get(key))
+	p["path"] = path
+	if str(p["name"]).strip_edges().is_empty():
+		p["name"] = path.get_file()
+	p["kind"] = "folder" if _as_str(raw.get("kind")) == "folder" else "godot"
+	p["folder_notice_dismissed"] = _as_bool(raw.get("folder_notice_dismissed"))
+	var depots: Array = []
+	var raw_depots: Variant = raw.get("depots")
+	if raw_depots is Array:
+		for d: Variant in raw_depots:
+			if not d is Dictionary:
+				continue
+			if p["kind"] == "folder":
+				depots.append({"content_dir": _as_str(d.get("content_dir")), "depot_id": _as_str(d.get("depot_id"))})
+			else:
+				depots.append({
+					"preset": _as_str(d.get("preset")),
+					"depot_id": _as_str(d.get("depot_id")),
+					"output": _strip_known_extension(_as_str(d.get("output"))),
+				})
+	p["depots"] = depots
+	return p
+
+
+## [param value] as text; null becomes "" instead of "<null>".
+static func _as_str(value: Variant) -> String:
+	return "" if value == null else str(value)
+
+
+## [param value] as a bool, also for "true"/"1" written by hand.
+static func _as_bool(value: Variant) -> bool:
+	if value is bool:
+		return value
+	return str(value).strip_edges().to_lower() in ["true", "1", "yes"]
+
+
+## Copies an unreadable settings file to "<name>.broken-<unix time>" next to
+## it. Returns the absolute backup path, or "" when the copy failed.
+static func _backup_broken_file(path: String) -> String:
+	var source := ProjectSettings.globalize_path(path)
+	var backup := "%s.broken-%d" % [source, int(Time.get_unix_time_from_system())]
+	return backup if DirAccess.copy_absolute(source, backup) == OK else ""
+
+
+## Logs a failed save once per file until a save of it works again, so a
+## full disk or read-only data folder does not flood the console on every
+## keystroke. Warn, not error: it must not mark an unrelated step as failed.
+func _report_save(err: Error, path: String) -> void:
+	if err == OK:
+		_failed_saves.erase(path)
+		return
+	if _failed_saves.has(path):
+		return
+	_failed_saves[path] = true
+	log_line("Could not save %s (%s). Changes stay only until you quit. Free up disk space and check that %s is writable." % [ProjectSettings.globalize_path(path), error_string(err), OS.get_user_data_dir()], COLOR_WARN)
+
+
+## Only the "Remember" toggles are written here, never the password or shared
+## secret themselves: those go to the OS credential store (see
+## [method _persist_secrets]) and otherwise live in memory until the app quits.
 func _save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("tools", "steamcmd_binary", %SteamCmdBinary.text)
@@ -3682,28 +4669,186 @@ func _save_settings() -> void:
 	cfg.set_value("steam", "login_verified_user", _login_verified_user)
 	cfg.set_value("steam", "persona", _login_persona)
 	cfg.set_value("steam", "remember_shared_secret", %RememberSharedSecret.button_pressed)
-	cfg.set_value("steam", "shared_secret", %SteamSharedSecret.text if %RememberSharedSecret.button_pressed else "")
 	cfg.set_value("steam", "remember_password", %RememberPassword.button_pressed)
-	cfg.set_value("steam", "password", %SteamPassword.text if %RememberPassword.button_pressed else "")
-	cfg.save(SETTINGS_FILE)
+	_report_save(cfg.save(SETTINGS_FILE), SETTINGS_FILE)
 
 
+## Every value is coerced, so a hand-edited file cannot crash the app. An
+## unreadable file is copied aside first and the fields start empty.
 func _load_settings() -> void:
-	var cfg := ConfigFile.new()
-	if cfg.load(SETTINGS_FILE) != OK:
+	if not FileAccess.file_exists(SETTINGS_FILE):
 		return
-	%SteamCmdBinary.text = cfg.get_value("tools", "steamcmd_binary", "")
-	%SteamUsername.text = cfg.get_value("steam", "username", "")
-	_login_verified = cfg.get_value("steam", "login_verified", false)
-	_login_verified_user = cfg.get_value("steam", "login_verified_user", "")
-	_login_persona = cfg.get_value("steam", "persona", "")
-	var stored_secret: String = cfg.get_value("steam", "shared_secret", "")
+	var cfg := ConfigFile.new()
+	var err := cfg.load(SETTINGS_FILE)
+	if err != OK:
+		var backup := _backup_broken_file(SETTINGS_FILE)
+		log_line("Your settings could not be read (%s), so SteamCMD and the Steam account need to be set up again. %s" % [
+			error_string(err),
+			("The old file was kept as %s." % backup) if not backup.is_empty() else ""], COLOR_WARN)
+		return
+	%SteamCmdBinary.text = _as_str(cfg.get_value("tools", "steamcmd_binary", ""))
+	%SteamUsername.text = _as_str(cfg.get_value("steam", "username", ""))
+	_login_verified = _as_bool(cfg.get_value("steam", "login_verified", false))
+	_login_verified_user = _as_str(cfg.get_value("steam", "login_verified_user", ""))
+	_login_persona = _as_str(cfg.get_value("steam", "persona", ""))
+	# Older versions kept both secrets here as plain text; _load_secrets moves
+	# them to the credential store.
+	var plain_secret := _as_str(cfg.get_value("steam", "shared_secret", ""))
+	var plain_password := _as_str(cfg.get_value("steam", "password", ""))
+	# No signal: toggled also syncs the credential store, which would erase the
+	# stored secrets from the still-empty fields before they are read.
 	# Older settings files have no remember flag: keep the secret if one was stored.
-	%RememberSharedSecret.button_pressed = cfg.get_value("steam", "remember_shared_secret", not stored_secret.is_empty())
-	%SteamSharedSecret.text = stored_secret
-	%RememberPassword.button_pressed = cfg.get_value("steam", "remember_password", false)
-	%SteamPassword.text = cfg.get_value("steam", "password", "")
+	%RememberSharedSecret.set_pressed_no_signal(_as_bool(cfg.get_value("steam", "remember_shared_secret", not plain_secret.is_empty())))
+	%RememberPassword.set_pressed_no_signal(_as_bool(cfg.get_value("steam", "remember_password", false)))
+	_load_secrets({SECRET_PASSWORD: plain_password, SECRET_SHARED_SECRET: plain_secret})
 	if _login_ok():
 		%SteamStatusLabel.text = "Signed in (cached)"
 		# Cached avatar (or a fresh one when nothing is cached yet).
 		%SteamProfile.fetch(_login_verified_user, _resolve_steamcmd(%SteamCmdBinary.text))
+
+
+# ---------------------------------------------------------------------------
+# Remembered secrets (OS credential store, see SecretStore)
+# ---------------------------------------------------------------------------
+
+func _secret_field(key: String) -> LineEdit:
+	return %SteamPassword if key == SECRET_PASSWORD else %SteamSharedSecret
+
+
+func _secret_remember_button(key: String) -> Button:
+	return %RememberPassword if key == SECRET_PASSWORD else %RememberSharedSecret
+
+
+static func _secret_label(key: String) -> String:
+	return "password" if key == SECRET_PASSWORD else "shared secret"
+
+
+## Without a credential store (Linux without secret-tool or a running keyring)
+## nothing can be remembered, so the Remember toggles are disabled with the
+## reason in their tooltip.
+func _apply_secret_store_state() -> void:
+	if not SecretStore.backend().is_empty():
+		return
+	for key: String in [SECRET_PASSWORD, SECRET_SHARED_SECRET]:
+		var button := _secret_remember_button(key)
+		button.set_pressed_no_signal(false)
+		button.disabled = true
+		button.get_parent().tooltip_text = "No keyring found, so the %s cannot be remembered. Install secret-tool (package libsecret-tools or libsecret) and a keyring such as GNOME Keyring or KWallet, then restart the app." % _secret_label(key)
+
+
+## Fills the password and shared secret fields from the OS credential store.
+## [param plain] (SecretStore key -> value) holds the plain-text copies older
+## versions kept in settings.cfg: they are moved to the store and removed
+## from the file.
+func _load_secrets(plain: Dictionary) -> void:
+	var store := SecretStore.backend()
+	var moved := PackedStringArray()
+	var dropped := PackedStringArray()
+	for key: String in [SECRET_PASSWORD, SECRET_SHARED_SECRET]:
+		var remember := _secret_remember_button(key)
+		if store.is_empty():
+			remember.set_pressed_no_signal(false)
+		var old: String = plain.get(key, "")
+		var value := old
+		var stored := ""
+		if remember.button_pressed:
+			if old.is_empty():
+				value = SecretStore.read(key)
+				stored = value
+			elif SecretStore.write(key, old):
+				moved.append(_secret_label(key))
+				stored = old
+		if not old.is_empty() and stored.is_empty():
+			dropped.append(_secret_label(key))
+		_secret_field(key).text = value
+		_stored_secrets[key] = stored
+	if not moved.is_empty():
+		log_line("Moved the remembered %s from settings.cfg (plain text) to %s." % [" and ".join(moved), store], COLOR_INFO)
+	if not dropped.is_empty():
+		log_line("Removed the plain-text %s from settings.cfg, but %s. %s filled in until you quit." % [
+			" and ".join(dropped),
+			("could not store it in %s" % store) if not store.is_empty() else "this system has no keyring to keep it in",
+			"They stay" if dropped.size() > 1 else "It stays"], COLOR_WARN)
+	if not moved.is_empty() or not dropped.is_empty():
+		_save_settings()  # Rewrites the file without the plain-text copies.
+
+
+## The secrets whose stored value differs from what should be stored now:
+## the field text with Remember on, "" (erase) with it off.
+func _secret_changes() -> Dictionary:
+	var changes := {}
+	for key: String in [SECRET_PASSWORD, SECRET_SHARED_SECRET]:
+		var wanted: String = _secret_field(key).text if _secret_remember_button(key).button_pressed else ""
+		if wanted != _stored_secrets.get(key, ""):
+			changes[key] = wanted
+	return changes
+
+
+## Brings the OS credential store in line with the fields: writes remembered
+## secrets that changed and erases the ones whose Remember toggle is off. Runs
+## on a worker thread, since a round trip can take a second.
+func _persist_secrets() -> void:
+	if SecretStore.backend().is_empty():
+		return
+	if _secret_thread != null:
+		_secrets_dirty = true
+		return
+	var changes := _secret_changes()
+	if changes.is_empty():
+		return
+	_secret_thread = Thread.new()
+	_secret_thread.start(_write_secrets.bind(changes))
+
+
+## Worker thread: writes [param changes] (SecretStore key -> value).
+func _write_secrets(changes: Dictionary) -> Dictionary:
+	var failed := PackedStringArray()
+	for key: String in changes:
+		if not SecretStore.write(key, changes[key]):
+			failed.append(key)
+	_finish_secret_write.call_deferred()
+	return {"changes": changes, "failed": failed}
+
+
+## Joins the secret write thread and records what it stored. Does nothing
+## when [method _flush_secrets] has joined it already.
+func _finish_secret_write() -> void:
+	if _secret_thread == null:
+		return
+	var res: Dictionary = _secret_thread.wait_to_finish()
+	_secret_thread = null
+	_record_secret_writes(res["changes"], res["failed"])
+	if _secrets_dirty:
+		_secrets_dirty = false
+		_persist_secrets()
+
+
+func _record_secret_writes(changes: Dictionary, failed: PackedStringArray) -> void:
+	for key: String in changes:
+		if not failed.has(key):
+			_stored_secrets[key] = changes[key]
+	if failed.is_empty():
+		_secret_write_failed = false
+		return
+	if _secret_write_failed:
+		return
+	_secret_write_failed = true
+	var labels := PackedStringArray()
+	for key in failed:
+		labels.append(_secret_label(key))
+	log_line("Could not update the remembered %s in %s. Changing the field or the Remember toggle tries again." % [" and ".join(labels), SecretStore.backend()], COLOR_WARN)
+
+
+## Quit: waits for a running write, then writes whatever changed since on
+## this thread, since no deferred call runs any more. Safe to call twice.
+func _flush_secrets() -> void:
+	_secrets_dirty = false
+	_finish_secret_write()
+	if SecretStore.backend().is_empty():
+		return
+	var changes := _secret_changes()
+	var failed := PackedStringArray()
+	for key: String in changes:
+		if not SecretStore.write(key, changes[key]):
+			failed.append(key)
+	_record_secret_writes(changes, failed)

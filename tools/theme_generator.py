@@ -28,7 +28,8 @@ BORDER_STRONG = "#333333"
 SHADOW        = "#141414"   # console drop shadow
 TEXT          = "#ececec"
 TEXT_2        = "#a3a3a3"
-TEXT_MUTED    = "#6b6b6b"
+TEXT_MUTED    = "#8a8a8a"   # captions, placeholders, idle icons: >= 4.5:1 on BG_APP and BG_CARD (WCAG AA)
+TEXT_DISABLED = "#6b6b6b"   # disabled controls only (exempt from contrast rules)
 ACCENT        = "#478cbf"   # Godot blue
 ACCENT_HOVER  = "#5a9cd0"
 ACCENT_PRESS  = "#3d7aa8"
@@ -111,12 +112,12 @@ item("Button/styles/hover",    flat("btn_hover", "#2a2a2a", border="#3a3a3a", bw
 item("Button/styles/pressed",  flat("btn_pressed", "#333333", border="#444444", bw=1, radius=6, margins=BTN_M))
 item("Button/styles/hover_pressed", 'SubResource("btn_pressed")')
 item("Button/styles/disabled", flat("btn_disabled", "#1c1c1c", border="#262626", bw=1, radius=6, margins=BTN_M))
-item("Button/styles/focus",    flat("btn_focus", border=ACCENT, border_a=0.55, bw=1, radius=6, draw_center=False))
+item("Button/styles/focus",    flat("btn_focus", border=ACCENT, border_a=0.9, bw=2, radius=6, draw_center=False))
 for state, c in (("font_color", TEXT), ("font_hover_color", TEXT), ("font_pressed_color", TEXT),
                  ("font_hover_pressed_color", TEXT), ("font_focus_color", TEXT),
-                 ("font_disabled_color", TEXT_MUTED), ("icon_normal_color", TEXT_2),
+                 ("font_disabled_color", TEXT_DISABLED), ("icon_normal_color", TEXT_2),
                  ("icon_hover_color", TEXT), ("icon_pressed_color", TEXT),
-                 ("icon_focus_color", TEXT), ("icon_disabled_color", TEXT_MUTED)):
+                 ("icon_focus_color", TEXT), ("icon_disabled_color", TEXT_DISABLED)):
     item(f"Button/colors/{state}", col(c))
 item("Button/constants/h_separation", 8)
 item("Button/constants/icon_max_width", 16)
@@ -133,13 +134,13 @@ item("PrimaryButton/styles/hover",    flat("primary_hover", "#383838", border="#
 item("PrimaryButton/styles/pressed",  flat("primary_pressed", "#424242", border="#555555", bw=1, radius=8, margins=PM))
 item("PrimaryButton/styles/hover_pressed", 'SubResource("primary_pressed")')
 item("PrimaryButton/styles/disabled", flat("primary_disabled", "#1c1c1c", border="#262626", bw=1, radius=8, margins=PM))
-item("PrimaryButton/styles/focus",    flat("primary_focus", border=TEXT, border_a=0.35, bw=1, radius=8, draw_center=False))
+item("PrimaryButton/styles/focus",    flat("primary_focus", border=TEXT, border_a=0.8, bw=2, radius=8, draw_center=False))
 for state in ("font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"):
     item(f"PrimaryButton/colors/{state}", col(TEXT))
-item("PrimaryButton/colors/font_disabled_color", col(TEXT_MUTED))
+item("PrimaryButton/colors/font_disabled_color", col(TEXT_DISABLED))
 for state in ("icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"):
     item(f"PrimaryButton/colors/{state}", col(TEXT))
-item("PrimaryButton/colors/icon_disabled_color", col(TEXT_MUTED))
+item("PrimaryButton/colors/icon_disabled_color", col(TEXT_DISABLED))
 item("PrimaryButton/fonts/font", SEMI)
 item("PrimaryButton/font_sizes/font_size", 14)
 
@@ -151,13 +152,13 @@ item("FlatButton/styles/hover",    flat("flat_hover", "#262626", radius=6, margi
 item("FlatButton/styles/pressed",  flat("flat_pressed", "#2e2e2e", radius=6, margins=FM))
 item("FlatButton/styles/hover_pressed", 'SubResource("flat_pressed")')
 item("FlatButton/styles/disabled", empty("flat_disabled", FM))
-item("FlatButton/styles/focus",    flat("flat_focus", border=ACCENT, border_a=0.5, bw=1, radius=6, draw_center=False))
+item("FlatButton/styles/focus",    flat("flat_focus", border=ACCENT, border_a=0.9, bw=2, radius=6, draw_center=False))
 item("FlatButton/colors/font_color", col(TEXT_2))
 item("FlatButton/colors/font_hover_color", col(TEXT))
 item("FlatButton/colors/font_pressed_color", col(TEXT))
 for state, c in (("icon_normal_color", TEXT_2), ("icon_hover_color", TEXT),
                  ("icon_pressed_color", TEXT), ("icon_hover_pressed_color", TEXT),
-                 ("icon_focus_color", TEXT), ("icon_disabled_color", TEXT_MUTED)):
+                 ("icon_focus_color", TEXT), ("icon_disabled_color", TEXT_DISABLED)):
     item(f"FlatButton/colors/{state}", col(c))
 item("FlatButton/colors/font_hover_pressed_color", col(TEXT))
 item("FlatButton/colors/font_focus_color", col(TEXT))
@@ -180,7 +181,7 @@ item("IconButton/styles/hover",    flat("icon_hover", "#262626", radius=6, margi
 item("IconButton/styles/pressed",  flat("icon_pressed", "#303030", radius=6, margins=IM))
 item("IconButton/styles/hover_pressed", 'SubResource("icon_pressed")')
 item("IconButton/styles/disabled", empty("icon_disabled", IM))
-item("IconButton/styles/focus",    flat("icon_focus", border=ACCENT, border_a=0.5, bw=1, radius=6, draw_center=False))
+item("IconButton/styles/focus",    flat("icon_focus", border=ACCENT, border_a=0.9, bw=2, radius=6, draw_center=False))
 item("IconButton/colors/font_color", col(TEXT_MUTED))
 item("IconButton/colors/font_hover_color", col(TEXT))
 item("IconButton/colors/font_pressed_color", col(TEXT))
@@ -202,13 +203,13 @@ item("SidebarItem/styles/hover",    flat("side_hover", "#1c1c1c", radius=8, marg
 item("SidebarItem/styles/pressed",  flat("side_pressed", "#242424", radius=8, margins=SM))
 item("SidebarItem/styles/hover_pressed", flat("side_hover_pressed", "#282828", radius=8, margins=SM))
 item("SidebarItem/styles/disabled", empty("side_disabled", SM))
-item("SidebarItem/styles/focus",    flat("side_focus", border=ACCENT, border_a=0.45, bw=1, radius=8, draw_center=False))
+item("SidebarItem/styles/focus",    flat("side_focus", border=ACCENT, border_a=0.9, bw=2, radius=8, draw_center=False))
 item("SidebarItem/colors/font_color", col(TEXT_2))
 item("SidebarItem/colors/font_hover_color", col(TEXT))
 item("SidebarItem/colors/font_pressed_color", col(TEXT))
 item("SidebarItem/colors/font_hover_pressed_color", col(TEXT))
 item("SidebarItem/colors/font_focus_color", col(TEXT))
-item("SidebarItem/colors/font_disabled_color", col(TEXT_MUTED))
+item("SidebarItem/colors/font_disabled_color", col(TEXT_DISABLED))
 item("SidebarItem/colors/icon_normal_color", col(TEXT_MUTED))
 item("SidebarItem/colors/icon_hover_color", col(TEXT_2))
 item("SidebarItem/colors/icon_pressed_color", col(TEXT))
@@ -234,7 +235,7 @@ item("CheckToggle/styles/hover",    flat("ct_hover", "#1e1e1e", border="#444444"
 item("CheckToggle/styles/pressed",  flat("ct_pressed", ACCENT, radius=4))
 item("CheckToggle/styles/hover_pressed", flat("ct_hover_pressed", ACCENT_HOVER, radius=4))
 item("CheckToggle/styles/disabled", flat("ct_disabled", "#1c1c1c", border="#262626", bw=1, radius=4))
-item("CheckToggle/styles/focus",    flat("ct_focus", border=ACCENT, border_a=0.6, bw=1, radius=4, draw_center=False))
+item("CheckToggle/styles/focus",    flat("ct_focus", border=ACCENT, border_a=0.9, bw=2, radius=4, draw_center=False))
 item("CheckToggle/colors/font_color", col("#000000", 0.0))
 item("CheckToggle/colors/font_hover_color", col("#000000", 0.0))
 item("CheckToggle/colors/font_focus_color", col("#000000", 0.0))
@@ -256,7 +257,7 @@ item("CheckBox/styles/hover",   empty("chk_hover", (4, 4, 4, 4)))
 item("CheckBox/styles/pressed", empty("chk_pressed", (4, 4, 4, 4)))
 item("CheckBox/styles/hover_pressed", empty("chk_hover_pressed", (4, 4, 4, 4)))
 item("CheckBox/styles/disabled", empty("chk_disabled", (4, 4, 4, 4)))
-item("CheckBox/styles/focus",   flat("chk_focus", border=ACCENT, border_a=0.5, bw=1, radius=6, draw_center=False))
+item("CheckBox/styles/focus",   flat("chk_focus", border=ACCENT, border_a=0.9, bw=2, radius=6, draw_center=False))
 item("CheckBox/colors/font_color", col(TEXT_2))
 item("CheckBox/colors/font_hover_color", col(TEXT))
 item("CheckBox/colors/font_pressed_color", col(TEXT))
@@ -281,7 +282,7 @@ item("OptionButton/colors/font_hover_color", col(TEXT))
 item("OptionButton/colors/font_pressed_color", col(TEXT))
 item("OptionButton/colors/font_hover_pressed_color", col(TEXT))
 item("OptionButton/colors/font_focus_color", col(TEXT))
-item("OptionButton/colors/font_disabled_color", col(TEXT_MUTED))
+item("OptionButton/colors/font_disabled_color", col(TEXT_DISABLED))
 item("OptionButton/constants/arrow_margin", 8)
 item("OptionButton/constants/modulate_arrow", 1)
 item("OptionButton/font_sizes/font_size", 13)
@@ -475,7 +476,7 @@ item("PopupMenu/styles/hover", flat("popup_hover", "#2a2a2a", border="#3a3a3a", 
 item("PopupMenu/styles/separator", line("popup_sep", BORDER))
 item("PopupMenu/colors/font_color", col(TEXT))
 item("PopupMenu/colors/font_hover_color", col(TEXT))
-item("PopupMenu/colors/font_disabled_color", col(TEXT_MUTED))
+item("PopupMenu/colors/font_disabled_color", col(TEXT_DISABLED))
 item("PopupMenu/colors/font_accelerator_color", col(TEXT_MUTED))
 item("PopupMenu/colors/font_separator_color", col(TEXT_MUTED))
 item("PopupMenu/constants/v_separation", 6)

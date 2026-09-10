@@ -92,7 +92,7 @@ func fetch_header(app_id: String, force := false) -> void:
 
 func _on_request_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	var ok := result == HTTPRequest.RESULT_SUCCESS and code == 200
-	_last_reason = ("HTTP %d" % code) if result == HTTPRequest.RESULT_SUCCESS else "no response"
+	_last_reason = ("HTTP %d" % code) if result == HTTPRequest.RESULT_SUCCESS else KnownIssues.http_result_text(result)
 	match _stage:
 		"api":
 			# The API only lists header.jpg (under a hashed path the capsule is

@@ -51,6 +51,33 @@ static func parse_depots(text: String, app_id: String) -> Array[Dictionary]:
 	return result
 
 
+## Every depot ID a build of [param app_id] may upload to, as listed in
+## [param text], sorted. Unlike [method parse_depots] this keeps DLC depots
+## (SteamPipe uploads them through the base app's build script); only depots
+## shared from another app are left out. Empty when the block is missing or a
+## stub without depots.
+static func uploadable_depot_ids(text: String, app_id: String) -> PackedStringArray:
+	var ids: Array[int] = []
+	var block := _last_block_for(text, app_id)
+	if block.is_empty():
+		return PackedStringArray()
+	var app: Dictionary = _parse_keyvalues(block).get(app_id, {})
+	var depots: Dictionary = app.get("depots", {})
+	for key in depots.keys():
+		var id := str(key)
+		if not id.is_valid_int():
+			continue
+		var depot = depots[key]
+		if depot is not Dictionary or depot.has("depotfromapp"):
+			continue
+		ids.append(int(id))
+	ids.sort()
+	var out := PackedStringArray()
+	for id in ids:
+		out.append(str(id))
+	return out
+
+
 ## True when a depot restricted to [param oslist] (comma separated, may be "")
 ## can be served by an export preset for [param godot_platform].
 static func platform_matches(oslist: String, godot_platform: String) -> bool:

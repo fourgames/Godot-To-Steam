@@ -6,6 +6,10 @@ Desktop app that exports a Godot project and uploads the build to Steam with Ste
 
 The **SteamCMD** tab in the sidebar holds a two-step checklist shared by every app: point Godot To Steam at a SteamCMD binary (Find, folder or Download button), then enter your Steam account and press **Sign in**. Until both steps are done, the **+** button next to **Apps** opens this checklist instead of adding an app. The verified login is remembered in `user://settings.cfg`; changing the username asks for a new sign-in.
 
+## When something fails
+
+Every failure is explained in the console: the checks before a build name the field to fix, and when SteamCMD or Godot fails with a known problem (wrong password, rate limit, missing permissions, missing export templates, …) a **How to fix** line and the banner say what to do. If that does not help, press the copy button in the console header: it copies the whole console together with a setup report (versions, paths, setup state and app settings), with the password, shared secret, Steam account name and home folder removed, ready to paste to an AI or on Discord. Closing the window while something runs stops it.
+
 ## Depot rows and the Executable column
 
 Each depot row pairs an export preset with a Steam depot ID and an executable name. Type only the base name (it defaults to the project name); the extension is fixed by the preset's platform: `.exe` for Windows, `.x86_64` for Linux and `.app` for macOS. Godot names the executable and its `.pck` after it, and SteamCMD uploads the whole depot folder. Steam itself does not care about the name, but the launch option you set in Steamworks → Installation → General must point at the same file, e.g. `MyGame.exe` or `MyGame.app`. macOS presets are exported as a zip that the app unpacks before upload, so the `.app` bundle is what ships.
@@ -30,7 +34,9 @@ Normal flow: enter your username and password and press **Sign in**. With the St
 
 If SteamCMD instead keeps running and prompts for the code on the console, the button turns into **Submit code**: type the code and press Enter or **Submit code** and SteamCMD finishes the login in the same session. Both paths also apply while Build & Publish and a depot fetch run.
 
-The shared secret field is optional and for advanced use only. It is the **Shared secret** field in the Steam account card. If you already have a Steam Guard `shared_secret` for a dedicated build account with publish access, you can paste it in and the app will generate codes itself. Do not set up an authenticator on your main account for this. The secret is only written to `user://settings.cfg` (plain text) when **Remember shared secret** is on.
+The shared secret field is optional and for advanced use only. It is the **Shared secret** field in the Steam account card. If you already have a Steam Guard `shared_secret` for a dedicated build account with publish access, you can paste it in and the app will generate codes itself. Do not set up an authenticator on your main account for this. The secret is only saved when **Remember** next to it is on.
+
+The password and shared secret are never written to a settings file. With **Remember** on they go to the system's credential store: the login Keychain on macOS (items named `Godot To Steam`), DPAPI on Windows (an encrypted value in `user://secrets.cfg` that only your Windows user account can decrypt), and the Secret Service on Linux (GNOME Keyring or KWallet through `secret-tool`). On Linux without `secret-tool` or a running keyring, **Remember** is turned off and the fields are only kept until you quit. With **Remember** off they are only kept in memory. Older versions saved them as plain text in `user://settings.cfg`; the app moves them to the credential store on the next start and removes them from the file. The password is also never put on SteamCMD's command line, where other programs could read it: the app types it in when SteamCMD asks for it.
 
 ## Platform notes
 

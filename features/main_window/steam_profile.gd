@@ -83,7 +83,7 @@ func fetch(username: String, steamcmd_path: String, force := false) -> void:
 
 func _on_request_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS:
-		_fail("no response")
+		_fail(KnownIssues.http_result_text(result))
 		return
 	if code != 200:
 		_fail("HTTP %d" % code)

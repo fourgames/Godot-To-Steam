@@ -45,7 +45,7 @@ func fetch(guild_id: String) -> void:
 
 func _on_widget_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS:
-		widget_failed.emit("no response")
+		widget_failed.emit(KnownIssues.http_result_text(result))
 		return
 	if code == 403:
 		widget_failed.emit("HTTP 403 – enable Server Widget in Discord's server settings")

@@ -532,7 +532,7 @@ icon_alignment = 1
 [node name="RememberRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/PasswordRow"]
 layout_mode = 2
 size_flags_vertical = 4
-tooltip_text = "Stored as plain text in user://settings.cfg. Leave off to rely on SteamCMD's cached session instead."
+tooltip_text = "Kept in your system's credential store (macOS Keychain, Windows user encryption or the Linux keyring), never in a settings file. Leave off to rely on SteamCMD's cached session instead."
 theme_override_constants/separation = 6
 
 [node name="RememberPassword" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/PasswordRow/RememberRow"]
@@ -609,7 +609,7 @@ icon_alignment = 1
 [node name="RememberSecretRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/SecretRow"]
 layout_mode = 2
 size_flags_vertical = 4
-tooltip_text = "Stored as plain text in user://settings.cfg. Leave off to keep the secret only until you quit the app."
+tooltip_text = "Kept in your system's credential store (macOS Keychain, Windows user encryption or the Linux keyring), never in a settings file. Leave off to keep the secret only until you quit the app."
 theme_override_constants/separation = 6
 
 [node name="RememberSharedSecret" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountCard/AccountRows/SecretRow/RememberSecretRow"]
@@ -1214,40 +1214,6 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="DepotsWarning" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout"]
-unique_name_in_owner = true
-visible = false
-layout_mode = 2
-theme_type_variation = &"Banner"
-
-[node name="DepotsWarningRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsWarning"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="DepotsWarningDot" type="Panel" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsWarning/DepotsWarningRow"]
-self_modulate = Color(0.8510, 0.6510, 0.2902, 1)
-custom_minimum_size = Vector2(8, 8)
-layout_mode = 2
-size_flags_vertical = 4
-mouse_filter = 2
-theme_type_variation = &"Dot"
-
-[node name="DepotsWarningLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsWarning/DepotsWarningRow"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_type_variation = &"Muted"
-text = "No project.godot found — this app is treated as a content folder, so every file inside is uploaded to its depot as-is. Use this for manual builds from other engines, soundtracks, or DLC; add a launch option in Steamworks only if this app should launch something."
-autowrap_mode = 3
-
-[node name="DismissDepotsWarningButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsWarning/DepotsWarningRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(32, 0)
-layout_mode = 2
-size_flags_vertical = 4
-theme_type_variation = &"IconButton"
-icon = ExtResource("14_close")
-icon_alignment = 1
-
 [node name="TopFade" type="TextureRect" parent="Layout/Content/MainView/ScrollFrame"]
 custom_minimum_size = Vector2(0, 28)
 layout_mode = 2
@@ -1281,18 +1247,23 @@ visible = false
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="StatusBanner" type="PanelContainer" parent="Layout/Content/MainView/ComposerMargin/ComposerBox" unique_id=549973169]
+[node name="StatusStack" type="VBoxContainer" parent="Layout/Content/MainView/ComposerMargin/ComposerBox" unique_id=466451255]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="StatusBanner" type="PanelContainer" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/StatusStack" unique_id=549973169]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 theme_type_variation = &"Banner"
 
-[node name="BannerRow" type="HBoxContainer" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/StatusBanner" unique_id=459891779]
+[node name="BannerRow" type="HBoxContainer" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/StatusStack/StatusBanner" unique_id=459891779]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="BannerDot" type="Panel" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/StatusBanner/BannerRow" unique_id=1999219966]
-unique_name_in_owner = true
+[node name="BannerDot" type="Panel" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/StatusStack/StatusBanner/BannerRow" unique_id=1999219966]
 self_modulate = Color(0.8902, 0.702, 0.2549, 1)
 custom_minimum_size = Vector2(8, 8)
 layout_mode = 2
@@ -1300,16 +1271,14 @@ size_flags_vertical = 4
 mouse_filter = 2
 theme_type_variation = &"Dot"
 
-[node name="BannerLabel" type="Label" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/StatusBanner/BannerRow" unique_id=470397050]
-unique_name_in_owner = true
+[node name="BannerLabel" type="Label" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/StatusStack/StatusBanner/BannerRow" unique_id=470397050]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"Muted"
 text = "Status"
 autowrap_mode = 3
 
-[node name="DismissBannerButton" type="Button" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/StatusBanner/BannerRow" unique_id=180990263]
-unique_name_in_owner = true
+[node name="DismissBannerButton" type="Button" parent="Layout/Content/MainView/ComposerMargin/ComposerBox/StatusStack/StatusBanner/BannerRow" unique_id=180990263]
 custom_minimum_size = Vector2(32, 0)
 layout_mode = 2
 size_flags_vertical = 4
@@ -1386,7 +1355,7 @@ text = "Console"
 [node name="CopyConsoleButton" type="Button" parent="Layout/Content/ConsoleDock/ConsolePanel/ConsoleLayout/ConsoleHeader/ConsoleHeaderRow" unique_id=1663920571]
 unique_name_in_owner = true
 layout_mode = 2
-tooltip_text = "Copy all output"
+tooltip_text = "Copy the console and your setup, ready to paste to an AI or on Discord (passwords, secrets, your Steam account name and home folder are removed)"
 theme_type_variation = &"IconButton"
 icon = ExtResource("24_action_copy")
 icon_alignment = 1

@@ -1,6 +1,6 @@
 class_name MainWindow
 extends Control
-## Godot to Steam – main window controller.
+## Godot To Steam – main window controller.
 ##
 ## Owns the sidebar project list, the per-project settings form (Godot binary,
 ## App ID, branch, depot table), the Steam auth panel with automatic TOTP, and
@@ -48,6 +48,11 @@ const ICON_COPY := preload("res://public/icons/editor/action_copy.svg")
 const ICON_CHECK := preload("res://public/icons/editor/import_check.svg")
 const BUILD_TOOLTIP := "Build and publish (Enter)"
 const STOP_TOOLTIP := "Stop what is running"
+
+
+## App name from project.godot, so console and welcome text follow it.
+static func _app_name() -> String:
+	return str(ProjectSettings.get_setting("application/config/name", "Godot To Steam"))
 
 ## Smallest window in logical points. The console hides itself as soon as the
 ## main view can no longer shrink to make room for it (see _console_fits) and
@@ -265,6 +270,7 @@ func _ready() -> void:
 	%DiscordWidget.widget_failed.connect(_on_discord_widget_failed)
 	%DiscordWidget.avatar_ready.connect(_on_discord_avatar_ready)
 	%DismissBannerButton.pressed.connect(func() -> void: %StatusBanner.visible = false)
+	%DismissDepotsWarningButton.pressed.connect(func() -> void: %DepotsWarning.visible = false)
 	%ProjectHeaderButton.pressed.connect(_on_browse_pressed)
 	%RemoveProjectButton.pressed.connect(_on_remove_project_pressed)
 	%ProjectDialog.dir_selected.connect(_on_project_dir_selected)
@@ -369,7 +375,7 @@ func _ready() -> void:
 	_show_project(-1)
 	_update_totp_status()
 	_refresh_setup_state()
-	log_line("Godot to Steam ready.", COLOR_OK)
+	log_line("%s ready." % _app_name(), COLOR_OK)
 
 
 ## Render the UI at the OS scale factor so it is the same physical size on a
@@ -792,7 +798,7 @@ func _show_project(index: int) -> void:
 	if not has_project:
 		%HeaderDebounce.stop()
 		if _projects.is_empty():
-			%SetupTitle.text = "Welcome to Godot to Steam"
+			%SetupTitle.text = "Welcome to %s" % _app_name()
 		else:
 			%SetupTitle.text = "SteamCMD"
 		_refresh_setup_state()
@@ -1246,7 +1252,7 @@ func _on_check_godot_pressed() -> void:
 		var required := _read_required_godot_version(_projects[_selected_index]["path"])
 		var found := await _guess_godot_binary(required)
 		if found.is_empty():
-			log_line("No Godot %s install found in /Applications or the Steam library. Use the folder button to pick one." % required, COLOR_WARN)
+			log_line("No Godot %s install found on PATH, in common install folders, your Steam libraries or Downloads. Use the folder button to pick one." % required, COLOR_WARN)
 		else:
 			log_line("Found Godot %s at %s" % [required, found], COLOR_OK)
 			%GodotBinary.text = found
@@ -1284,8 +1290,9 @@ func _is_script_file(file_name: String) -> bool:
 
 
 ## Finds a Godot binary whose --version matches [param required] ("4.7").
-## Order: binaries already set on other projects, then well-known install
-## locations (/Applications, ~/Applications, Steam library, PATH).
+## Order: binaries already set on other projects, then PATH, the platform's
+## usual install folders, every Steam library, Downloads, and finally the
+## editor hosting this tool.
 func _guess_godot_binary(required: String) -> String:
 	for p in _projects:
 		var b: String = p.get("godot_binary", "")
@@ -1326,18 +1333,40 @@ func _candidate_version_hint(exe: String) -> String:
 
 func _godot_candidates() -> PackedStringArray:
 	var out := PackedStringArray()
-	var home := OS.get_environment("HOME")
-	var dirs: PackedStringArray = [
-		"/Applications",
-		home.path_join("Applications"),
-		home.path_join("Library/Application Support/Steam/steamapps/common/Godot Engine"),
-		home.path_join("Library/Application Support/Steam/steamapps/common/Godot Engine 4"),
-		OS.get_environment("ProgramFiles").path_join("Godot"),
-		home.path_join(".steam/steam/steamapps/common/Godot Engine"),
-		"/usr/local/bin",
-		"/opt/homebrew/bin",
-	]
+	var home := _home_dir()
+	var dirs := _path_dirs()
+	match OS.get_name():
+		"macOS":
+			dirs.append_array([
+				"/Applications",
+				home.path_join("Applications"),
+				"/usr/local/bin",
+				"/opt/homebrew/bin",
+			])
+		"Windows":
+			for env in ["ProgramFiles", "ProgramFiles(x86)"]:
+				var base := OS.get_environment(env)
+				if not base.is_empty():
+					dirs.append(base.path_join("Godot"))
+			var local := OS.get_environment("LOCALAPPDATA")
+			if not local.is_empty():
+				dirs.append(local.path_join("Programs/Godot"))
+		_:
+			dirs.append_array([
+				home.path_join(".local/bin"),
+				home.path_join("bin"),
+				"/usr/bin",
+				"/usr/local/bin",
+			])
+	for root in _steam_library_roots():
+		dirs.append(root.path_join("steamapps/common/Godot Engine"))
+		dirs.append(root.path_join("steamapps/common/Godot Engine 4"))
+	dirs.append(OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS))
+
+	var console := PackedStringArray()  # Windows ships a *_console.exe twin; try the GUI exe first.
 	for d in dirs:
+		if d.is_empty():
+			continue
 		var dir := DirAccess.open(d)
 		if dir == null:
 			continue
@@ -1347,10 +1376,55 @@ func _godot_candidates() -> PackedStringArray:
 				if not exe.is_empty() and not out.has(exe):
 					out.append(exe)
 		for entry in dir.get_files():
-			if "godot" in entry.to_lower() and not _is_script_file(entry) and not out.has(d.path_join(entry)):
-				out.append(d.path_join(entry))
+			var lower := entry.to_lower()
+			if "godot" not in lower or _is_script_file(entry):
+				continue
+			var full := d.path_join(entry)
+			if out.has(full) or console.has(full):
+				continue
+			if "console" in lower:
+				console.append(full)
+			else:
+				out.append(full)
+	out.append_array(console)
 	if OS.has_feature("editor") and not out.has(OS.get_executable_path()):
 		out.append(OS.get_executable_path())  # the editor running this tool
+	return out
+
+
+## Steam install roots: the client's default location per platform plus every
+## extra library listed in steamapps/libraryfolders.vdf (other drives).
+func _steam_library_roots() -> PackedStringArray:
+	var home := _home_dir()
+	var defaults := PackedStringArray()
+	match OS.get_name():
+		"macOS":
+			defaults.append(home.path_join("Library/Application Support/Steam"))
+		"Windows":
+			for env in ["ProgramFiles(x86)", "ProgramFiles"]:
+				var base := OS.get_environment(env)
+				if not base.is_empty():
+					defaults.append(base.path_join("Steam"))
+		_:
+			defaults.append_array([
+				home.path_join(".steam/steam"),
+				home.path_join(".local/share/Steam"),
+				home.path_join(".var/app/com.valvesoftware.Steam/.local/share/Steam"),
+			])
+	var out := PackedStringArray()
+	for root in defaults:
+		if not DirAccess.dir_exists_absolute(root):
+			continue
+		if not out.has(root):
+			out.append(root)
+		var vdf := FileAccess.get_file_as_string(root.path_join("steamapps/libraryfolders.vdf"))
+		for line in vdf.split("\n"):
+			var tokens: PackedStringArray = %SteamProfile.quoted_tokens(line.strip_edges())
+			if tokens.size() >= 2 and tokens[0] == "path":
+				# VDF escapes backslashes ("D:\\SteamLibrary").
+				var extra: String = tokens[1].replace("\\\\", "/").replace("\\", "/").trim_suffix("/")
+				if not extra.is_empty() and not out.has(extra) and DirAccess.dir_exists_absolute(extra):
+					out.append(extra)
 	return out
 
 
@@ -1452,13 +1526,12 @@ func _apply_depot_table_kind(folder: bool) -> void:
 	%ColPresetRow.visible = not folder
 	%ColOutputRow.visible = not folder
 	%ColFolderRow.visible = folder
-	# The Godot layout needs no caption: the executable field, its ghost
+	# The Godot layout needs no warning: the executable field, its ghost
 	# extension and the Installation → General link button already explain it.
-	%DepotsHintRow.visible = folder
+	%DepotsWarning.visible = folder
 	if folder:
 		%DepotsEmpty.text = "No depots yet. Add one row per content folder · Steam needs at least one."
 		%AddDepotButton.tooltip_text = "Add a depot (one per content folder)"
-		%DepotsHint.text = "Every file inside the folder is uploaded to its depot, without a Godot export. Soundtracks and DLC need no launch option; set one in Steamworks only if this app should launch something."
 	else:
 		%DepotsEmpty.text = "No depots yet. Add one row per export preset · Steam needs at least one."
 		%AddDepotButton.tooltip_text = "Add a depot (one per export preset)"
@@ -1472,7 +1545,7 @@ func _on_add_depot_pressed() -> void:
 	var depots: Array = _projects[_selected_index]["depots"]
 	var idx := mini(depots.size(), _preset_names.size() - 1)
 	var preset := _preset_names[idx] if _preset_names.size() > 0 else ""
-	depots.append(_new_depot_entry(preset, ""))
+	depots.insert(0, _new_depot_entry(preset, ""))
 	_save_projects()
 	_rebuild_depot_rows()
 	_refresh_depot_status()
@@ -1594,7 +1667,8 @@ func _query_depots(steamcmd: String, args: PackedStringArray, app_id: String) ->
 	return {"code": res["code"], "found": found}
 
 
-## Appends the depots from [param found] that are not already in the table.
+## Inserts the depots from [param found] that are not already in the table at
+## the top, keeping their fetched order.
 func _merge_fetched_depots(found: Array[Dictionary]) -> void:
 	var depots: Array = _projects[_selected_index]["depots"]
 	var existing_ids := {}
@@ -1614,7 +1688,7 @@ func _merge_fetched_depots(found: Array[Dictionary]) -> void:
 			preset = _preset_names[preset_index] if preset_index >= 0 else ""
 			if not preset.is_empty():
 				used_presets[preset] = true
-		depots.append(_new_depot_entry(preset, depot["depot_id"]))
+		depots.insert(added.size(), _new_depot_entry(preset, depot["depot_id"]))
 		added.append("%s (%s)" % [depot["depot_id"], SteamAppInfo.oslist_label(depot["oslist"])])
 	if not added.is_empty():
 		_depot_errors.clear()
@@ -1951,8 +2025,8 @@ func _default_base_name() -> String:
 	return clean if not clean.is_empty() else "game"
 
 
-## New depot row for the selected project. Folder apps point their first row
-## at the app folder itself; later rows start empty.
+## New depot row for the selected project. Folder apps point the first depot
+## they create at the app folder itself; later ones start empty.
 func _new_depot_entry(preset: String, depot_id: String) -> Dictionary:
 	var p := _projects[_selected_index]
 	if _is_folder_app(p):
@@ -2078,18 +2152,21 @@ func _on_build_publish_pressed() -> void:
 
 
 func _unzip_in_place(zip_path: String, dest_dir: String) -> bool:
-	var host := OS.get_name()
-	if host == "macOS" or host == "Linux":
-		# System unzip preserves the executable bits inside the .app bundle.
-		var code := await run_process("/usr/bin/unzip", ["-o", "-q", zip_path, "-d", dest_dir])
+	# System unzip preserves the executable bits inside the .app bundle.
+	var unzip := _find_on_path("unzip") if OS.get_name() != "Windows" else ""
+	if not unzip.is_empty():
+		var code := await run_process(unzip, ["-o", "-q", zip_path, "-d", dest_dir])
 		if code != 0:
 			log_line("unzip failed.", COLOR_ERR)
 			return false
 	else:
+		# No unzip on this host (Windows, minimal Linux): Godot's own reader,
+		# then put the executable bits back on the bundle's binaries by hand.
 		var reader := ZIPReader.new()
 		if reader.open(zip_path) != OK:
 			log_line("Could not open %s" % zip_path, COLOR_ERR)
 			return false
+		var unpacked := PackedStringArray()
 		for f in reader.get_files():
 			var target := dest_dir.path_join(f)
 			if f.ends_with("/"):
@@ -2099,11 +2176,30 @@ func _unzip_in_place(zip_path: String, dest_dir: String) -> bool:
 			var fa := FileAccess.open(target, FileAccess.WRITE)
 			fa.store_buffer(reader.read_file(f))
 			fa.close()
+			unpacked.append(target)
 		reader.close()
-		log_line("Unpacked with ZIPReader – executable bits are NOT preserved on this host.", COLOR_WARN)
+		_restore_bundle_exec_bits(unpacked)
 	DirAccess.remove_absolute(zip_path)
 	log_line("Unpacked %s" % zip_path.get_file(), COLOR_INFO)
 	return true
+
+
+## Marks every file under a Contents/MacOS/ folder executable (0755). Zip
+## archives read with ZIPReader lose their Unix mode bits. On Windows the
+## call is unavailable and silently skipped; the warning is logged only when
+## the host could have set them and failed.
+func _restore_bundle_exec_bits(files: PackedStringArray) -> void:
+	var failed := false
+	for path in files:
+		if not path.contains("/Contents/MacOS/"):
+			continue
+		var err := FileAccess.set_unix_permissions(path, 0x1ED)  # 0755
+		if err != OK and err != ERR_UNAVAILABLE:
+			failed = true
+	if failed:
+		log_line("Could not mark the .app binaries executable – the bundle may not launch.", COLOR_WARN)
+	elif OS.get_name() == "Windows":
+		log_line("Unpacked with ZIPReader – executable bits are NOT preserved on Windows.", COLOR_WARN)
 
 
 ## Renames the single .app bundle inside [param depot_dir] to
@@ -2476,6 +2572,15 @@ func _steamcmd_install_dir() -> String:
 	return OS.get_user_data_dir().path_join("steamcmd")
 
 
+## The user's home directory on every platform. Windows normally has no
+## HOME variable; USERPROFILE is the equivalent there.
+static func _home_dir() -> String:
+	var home := OS.get_environment("HOME")
+	if home.is_empty():
+		home = OS.get_environment("USERPROFILE")
+	return home
+
+
 func _path_dirs() -> PackedStringArray:
 	var sep := ";" if OS.get_name() == "Windows" else ":"
 	var out := PackedStringArray()
@@ -2483,6 +2588,15 @@ func _path_dirs() -> PackedStringArray:
 		if not out.has(d):
 			out.append(d)
 	return out
+
+
+## First executable called [param name] on PATH, or "" when there is none.
+func _find_on_path(name: String) -> String:
+	for d in _path_dirs():
+		var full := d.path_join(name)
+		if FileAccess.file_exists(full):
+			return full
+	return ""
 
 
 ## Turns what the user typed into a runnable path. A bare command name
@@ -2499,7 +2613,7 @@ func _resolve_steamcmd(text: String) -> String:
 		return ""
 	var names: PackedStringArray = [text]
 	if OS.get_name() == "Windows":
-		names.append_array([text + ".exe", text + ".bat", text + ".cmd"])
+		names.append(text + ".exe")
 	for d in _path_dirs():
 		for n in names:
 			var full := d.path_join(n)
@@ -2511,20 +2625,29 @@ func _resolve_steamcmd(text: String) -> String:
 ## Well-known SteamCMD locations: PATH, package-manager dirs, the folders
 ## Valve's docs suggest, and finally this app's own download folder.
 func _steamcmd_candidates() -> PackedStringArray:
-	var home := OS.get_environment("HOME")
+	var home := _home_dir()
 	var dirs := _path_dirs()
 	dirs.append_array([
 		"/usr/local/bin",
 		"/opt/homebrew/bin",
 		"/usr/games",
-		home.path_join(".steam/steamcmd"),
-		home.path_join("steamcmd"),
-		home.path_join("Steam"),
 		"C:/steamcmd",
 	])
-	var program_data := OS.get_environment("ProgramData")
-	if not program_data.is_empty():
-		dirs.append(program_data.path_join("chocolatey/bin"))
+	if not home.is_empty():
+		dirs.append_array([
+			home.path_join(".steam/steamcmd"),
+			home.path_join("steamcmd"),
+			home.path_join("Steam"),
+			# Where Windows users tend to unzip Valve's archive.
+			home.path_join("Desktop/steamcmd"),
+			home.path_join("Downloads/steamcmd"),
+			home.path_join("Documents/steamcmd"),
+		])
+	for env_dir in ["ProgramData", "LOCALAPPDATA"]:
+		var base := OS.get_environment(env_dir)
+		if base.is_empty():
+			continue
+		dirs.append(base.path_join("chocolatey/bin" if env_dir == "ProgramData" else "steamcmd"))
 	dirs.append(_steamcmd_install_dir())
 
 	var out := PackedStringArray()
@@ -2669,8 +2792,13 @@ func _on_steamcmd_download_completed(result: int, code: int, _headers: PackedStr
 		ok = await _unzip_in_place(_steamcmd_archive, dir)
 	else:
 		# System tar keeps the executable bits on steamcmd.sh and the binary.
-		ok = await run_process("/usr/bin/tar", ["-xzf", _steamcmd_archive, "-C", dir]) == 0
-		DirAccess.remove_absolute(_steamcmd_archive)
+		var tar := _find_on_path("tar")
+		if tar.is_empty():
+			log_line("No 'tar' on PATH – install it (or unpack %s into %s yourself)." % [_steamcmd_archive.get_file(), dir], COLOR_ERR)
+			ok = false
+		else:
+			ok = await run_process(tar, ["-xzf", _steamcmd_archive, "-C", dir]) == 0
+			DirAccess.remove_absolute(_steamcmd_archive)
 	if _bail_if_cancelled():
 		_refresh_setup_state()
 		return
@@ -2716,11 +2844,21 @@ func _update_steamcmd(exe: String) -> void:
 func _report_steamcmd_boot(code: int, ok_message: String) -> void:
 	if code != 0:
 		log_line("SteamCMD exited with code %d – check the output above." % code, COLOR_WARN)
-		if OS.get_name() == "macOS" and OS.has_feature("arm64"):
-			log_line("SteamCMD is an Intel binary. On Apple Silicon install Rosetta first: softwareupdate --install-rosetta", COLOR_WARN)
+		_log_steamcmd_runtime_hint()
 	else:
 		log_line(ok_message, COLOR_OK)
 	log_step_done(code == 0)
+
+
+## SteamCMD ships as an Intel / 32-bit binary; say what the host is missing
+## when it fails to start or exits early.
+func _log_steamcmd_runtime_hint() -> void:
+	match OS.get_name():
+		"macOS":
+			if OS.has_feature("arm64"):
+				log_line("SteamCMD is an Intel binary. On Apple Silicon install Rosetta first: softwareupdate --install-rosetta", COLOR_WARN)
+		"Linux":
+			log_line("SteamCMD is a 32-bit binary. Install the 32-bit runtime first: Debian/Ubuntu 'sudo apt install lib32gcc-s1', Fedora 'sudo dnf install glibc.i686 libstdc++.i686', Arch enable multilib and install lib32-gcc-libs.", COLOR_WARN)
 
 
 # ---------------------------------------------------------------------------
@@ -2801,6 +2939,8 @@ func run_process(exe: String, args: PackedStringArray) -> int:
 	var info := OS.execute_with_pipe(exe, args, false)
 	if info.is_empty():
 		log_line("Failed to start process.", COLOR_ERR)
+		if is_steamcmd_exe(launch["exe"]) or (args.size() > 1 and is_steamcmd_exe(args[1])):
+			_log_steamcmd_runtime_hint()
 		return -1
 
 	var pid: int = info["pid"]

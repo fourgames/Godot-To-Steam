@@ -851,7 +851,7 @@ text = "Godot"
 [node name="CheckGodotButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/GodotSection/GodotHeader" unique_id=1841323615]
 unique_name_in_owner = true
 layout_mode = 2
-tooltip_text = "Check the binary's version. With an empty field this finds a matching Godot in /Applications or the Steam library."
+tooltip_text = "Check the binary's version. With an empty field this searches PATH, common install folders, your Steam libraries and Downloads for a matching Godot."
 theme_type_variation = &"FlatButton"
 icon = ExtResource("21_search")
 text = "Find"
@@ -1214,18 +1214,39 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="DepotsHintRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout"]
+[node name="DepotsWarning" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_type_variation = &"Banner"
 
-[node name="DepotsHint" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsHintRow"]
-unique_name_in_owner = true
+[node name="DepotsWarningRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsWarning"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="DepotsWarningDot" type="Panel" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsWarning/DepotsWarningRow"]
+self_modulate = Color(0.8510, 0.6510, 0.2902, 1)
+custom_minimum_size = Vector2(8, 8)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_type_variation = &"Dot"
+
+[node name="DepotsWarningLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsWarning/DepotsWarningRow"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_type_variation = &"Caption"
+theme_type_variation = &"Muted"
+text = "No project.godot found — this app is treated as a content folder, so every file inside is uploaded to its depot as-is. Use this for manual builds from other engines, soundtracks, or DLC; add a launch option in Steamworks only if this app should launch something."
 autowrap_mode = 3
+
+[node name="DismissDepotsWarningButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotsWarning/DepotsWarningRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(32, 0)
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"IconButton"
+icon = ExtResource("14_close")
+icon_alignment = 1
 
 [node name="TopFade" type="TextureRect" parent="Layout/Content/MainView/ScrollFrame"]
 custom_minimum_size = Vector2(0, 28)

@@ -12,7 +12,8 @@ config_version=5
 
 config/name="Godot To Steam"
 run/main_scene="uid://ccwbs581hfimh"
-config/features=PackedStringArray("4.7", "Forward Plus")
+config/features=PackedStringArray("4.7")
+run/low_processor_mode=true
 boot_splash/bg_color=Color(0.08235, 0.08235, 0.08235, 1)
 boot_splash/show_image=false
 boot_splash/stretch_mode=0
@@ -25,9 +26,6 @@ buses/default_bus_layout="uid://ci61fr1dqsshd"
 
 [autoload]
 
-ControllerIcons="*uid://bkoh6nc478voj"
-SignalManager="*uid://djm5fbcusol8f"
-DataManager="*uid://ygcbtm438ecg"
 _mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
 
 [display]
@@ -39,17 +37,15 @@ window/per_pixel_transparency/allowed=true
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/controller_icons/plugin.cfg", "res://addons/godot_ai/plugin.cfg")
+enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg")
 
 [file_customization]
 
 folder_colors={
 "res://addons/": "gray",
 "res://assets/": "yellow",
-"res://core/": "red",
 "res://features/": "green",
 "res://public/": "orange",
-"res://routes/": "pink",
 "res://src/": "blue",
 "res://src/app/": "red",
 "res://src/components/": "green",
@@ -188,6 +184,8 @@ common/physics_interpolation=true
 [rendering]
 
 rendering_device/driver.windows="d3d12"
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.08235, 0.08235, 0.08235, 1)
 

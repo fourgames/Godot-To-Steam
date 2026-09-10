@@ -1,10 +1,10 @@
-# Godot to Steam
+# Godot To Steam
 
 Desktop app that exports a Godot project and uploads the build to Steam with SteamCMD.
 
 ## Getting started
 
-The **SteamCMD** tab in the sidebar holds a two-step checklist shared by every app: point Godot to Steam at a SteamCMD binary (Find, folder or Download button), then enter your Steam account and press **Sign in**. Until both steps are done, the **+** button next to **Apps** opens this checklist instead of adding an app. The verified login is remembered in `user://settings.cfg`; changing the username asks for a new sign-in.
+The **SteamCMD** tab in the sidebar holds a two-step checklist shared by every app: point Godot To Steam at a SteamCMD binary (Find, folder or Download button), then enter your Steam account and press **Sign in**. Until both steps are done, the **+** button next to **Apps** opens this checklist instead of adding an app. The verified login is remembered in `user://settings.cfg`; changing the username asks for a new sign-in.
 
 ## Depot rows and the Executable column
 
@@ -20,7 +20,7 @@ Press **Fetch** in the Depots header to fill the table from the App ID. The app 
 
 ## Branches and setting builds live
 
-**Set live on branch** is SteamPipe's `SetLive` option: after a successful upload SteamCMD sets the build live on that branch. Valve's docs limit this to beta branches ("the 'default' branch can not be set live automatically"), so type a beta branch name such as `beta`, or leave the field empty to upload without setting anything live. Godot to Steam rejects `default` before it starts the export.
+**Set live on branch** is SteamPipe's `SetLive` option: after a successful upload SteamCMD sets the build live on that branch. Valve's docs limit this to beta branches ("the 'default' branch can not be set live automatically"), so type a beta branch name such as `beta`, or leave the field empty to upload without setting anything live. Godot To Steam rejects `default` before it starts the export.
 
 To ship a build on the default branch, upload first, then open Steamworks → Builds (the **Builds** button under the field opens it) and set it live there. For a released app Steam asks you to confirm in the Steam Mobile app, so the account needs a phone number or the mobile app attached, and any change to the account's email or phone number blocks setting builds live for 3 days. Details: https://partner.steamgames.com/doc/sdk/uploading
 
@@ -31,3 +31,7 @@ Normal flow: enter your username and password and press **Sign in**. With the St
 If SteamCMD instead keeps running and prompts for the code on the console, the button turns into **Submit code**: type the code and press Enter or **Submit code** and SteamCMD finishes the login in the same session. Both paths also apply while Build & Publish and a depot fetch run.
 
 The shared secret field is optional and for advanced use only. It is the **Shared secret** field in the Steam account card. If you already have a Steam Guard `shared_secret` for a dedicated build account with publish access, you can paste it in and the app will generate codes itself. Do not set up an authenticator on your main account for this. The secret is only written to `user://settings.cfg` (plain text) when **Remember shared secret** is on.
+
+## Platform notes
+
+The app runs on macOS, Windows and Linux; the export presets build all three. SteamCMD is an Intel 32-bit binary from Valve, so the host needs: on Apple Silicon Macs, Rosetta (`softwareupdate --install-rosetta`); on Linux, the 32-bit runtime (`sudo apt install lib32gcc-s1` on Debian/Ubuntu, `sudo dnf install glibc.i686 libstdc++.i686` on Fedora, `lib32-gcc-libs` from multilib on Arch) and `tar` on `PATH` for the **Download SteamCMD** button; on Windows, nothing extra (`steamcmd.exe` is unpacked with Godot's own zip reader). macOS exports are unpacked with `unzip` when it is on `PATH`; otherwise the app unpacks them itself and marks the bundle's binaries executable. Godot and SteamCMD are looked up on `PATH`, in the usual install folders of each OS and in every Steam library; the **Detect** buttons and the file pickers cover anything else.

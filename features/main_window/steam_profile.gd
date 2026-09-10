@@ -231,7 +231,7 @@ static func _parse_account_id(vdf: String, username: String) -> String:
 			if in_user and depth < user_depth:
 				in_user = false
 			continue
-		var tokens := _quoted_tokens(line)
+		var tokens := quoted_tokens(line)
 		if tokens.is_empty():
 			continue
 		if in_user and tokens.size() >= 2 and tokens[0] == "SteamID":
@@ -242,7 +242,7 @@ static func _parse_account_id(vdf: String, username: String) -> String:
 	return ""
 
 
-static func _quoted_tokens(line: String) -> PackedStringArray:
+static func quoted_tokens(line: String) -> PackedStringArray:
 	var out := PackedStringArray()
 	var i := 0
 	while i < line.length():

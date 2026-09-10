@@ -609,20 +609,12 @@ func _on_browse_pressed() -> void:
 	%ProjectDialog.popup_centered()
 
 
-## Asks first: removing forgets the app's App ID, branch and depot rows.
+## Removing forgets the app's App ID, branch and depot rows; nothing is deleted
+## on disk or on Steam.
 func _on_remove_project_pressed() -> void:
 	if _selected_index < 0:
 		return
-	var p := _projects[_selected_index]
-	var dialog := ConfirmationDialog.new()
-	dialog.title = "Remove app"
-	dialog.dialog_text = "Remove '%s' from the list?\n\nIts App ID, branch and depot rows are forgotten. Nothing is deleted on disk or on Steam." % p["name"]
-	dialog.ok_button_text = "Remove"
-	dialog.confirmed.connect(_remove_project.bind(p))
-	dialog.confirmed.connect(dialog.queue_free)
-	dialog.canceled.connect(dialog.queue_free)
-	add_child(dialog)
-	dialog.popup_centered()
+	_remove_project(_projects[_selected_index])
 
 
 func _remove_project(p: Dictionary) -> void:

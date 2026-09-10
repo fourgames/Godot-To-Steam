@@ -1062,7 +1062,7 @@ icon_alignment = 1
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-tooltip_text = "Beta branch to set live after upload. Leave empty to set the build live in Steamworks yourself."
+tooltip_text = "Steamworks beta branch to set this build live on after upload (e.g. beta). The default branch can't be set live from here; leave empty and set it live in Steamworks yourself."
 placeholder_text = "beta"
 
 [node name="DepotsSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=1391297409]

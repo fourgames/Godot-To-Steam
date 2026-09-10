@@ -17,8 +17,8 @@ const STEAM_TOTP_ALPHABET := "23456789BCDFGHJKMNPQRTVWXY"
 const STEAMCMD_DOCS_URL := "https://developer.valvesoftware.com/wiki/SteamCMD"
 ## Steamworks → Installation → General for one app; %s is the App ID.
 const STEAMWORKS_APP_CONFIG_URL := "https://partner.steamgames.com/apps/config/%s"
-## Steamworks → SteamPipe → Builds for one app; %s is the App ID. Builds are set
-## live on the default branch here, since SteamCMD cannot do that.
+## Steamworks → SteamPipe → Builds for one app; %s is the App ID. Branches are
+## created and builds set live by hand here.
 const STEAMWORKS_BUILDS_URL := "https://partner.steamgames.com/apps/builds/%s"
 const STEAMWORKS_DEPOTS_URL := "https://partner.steamgames.com/apps/depots/%s"
 
@@ -155,6 +155,9 @@ var _fetching_depots := false
 ## session (SteamAppInfo.uploadable_depot_ids). Only non-empty answers are
 ## kept; Build & Publish skips its depot check when they cover every row.
 var _steam_depot_ids: Dictionary = {}
+## App ID → Dictionary of the branches Steam listed for it this session, name
+## → live buildid (SteamAppInfo.branch_builds). Only non-empty answers are kept.
+var _steam_branches: Dictionary = {}
 var _project_button_group := ButtonGroup.new()
 ## Discord widget: invite link from the last answer and when it was fetched.
 var _discord_invite := ""
@@ -1211,8 +1214,9 @@ func _validate_publish_form() -> bool:
 				break
 
 	var branch := _branch_name(p)
-	if branch.to_lower() == "default":
-		log_line("Steam does not allow SetLive on the default branch. Leave the field empty, upload, then set the build live in Steamworks → Builds and confirm in the Steam Mobile app.", COLOR_ERR)
+	if branch.to_lower() in ["default", "public"]:
+		# Steamworks calls the default branch "default", build scripts "public".
+		log_line("Builds can't be set live on the default branch from here. Steamworks shows it as 'default'; build scripts call it 'public'. Valve's documentation says it can't be set live automatically, and on a released game Steam refuses it with 'Access Denied' only after every depot is uploaded. Leave 'Set live on branch' empty, upload, then set the build live in Steamworks → Builds (the Builds page button); released apps also need confirmation in the Steam Mobile app.", COLOR_ERR)
 		_set_field_error(%Branch, true)
 		ok = false
 	elif " " in branch or "\"" in branch or "'" in branch:
@@ -2081,19 +2085,24 @@ func _fetch_depots(auto: bool) -> void:
 
 
 ## One SteamCMD run for [param app_id]'s app info, parsed:
-## { "code": int, "found": Array[Dictionary], "all_ids": PackedStringArray }
-## (see SteamAppInfo.parse_depots and uploadable_depot_ids). A non-empty
-## all_ids also goes into _steam_depot_ids.
+## { "code": int, "found": Array[Dictionary], "all_ids": PackedStringArray,
+## "branches": Dictionary } (see SteamAppInfo.parse_depots,
+## uploadable_depot_ids and branch_builds). A non-empty all_ids also goes into
+## _steam_depot_ids, non-empty branches into _steam_branches.
 func _query_depots(steamcmd: String, args: PackedStringArray, app_id: String) -> Dictionary:
 	var res := await run_process_capture(steamcmd, args)
 	var found: Array[Dictionary] = []
 	var all_ids := PackedStringArray()
+	var branches := {}
 	if res["code"] == 0:
 		found = SteamAppInfo.parse_depots(res["output"], app_id)
 		all_ids = SteamAppInfo.uploadable_depot_ids(res["output"], app_id)
+		branches = SteamAppInfo.branch_builds(res["output"], app_id)
 		if not all_ids.is_empty():
 			_steam_depot_ids[app_id] = all_ids
-	return {"code": res["code"], "found": found, "all_ids": all_ids}
+		if not branches.is_empty():
+			_steam_branches[app_id] = branches
+	return {"code": res["code"], "found": found, "all_ids": all_ids, "branches": branches}
 
 
 ## Inserts the depots from [param found] that are not already in the table at
@@ -2522,8 +2531,9 @@ func _on_build_publish_pressed() -> void:
 	_set_busy(true)
 	log_banner(("Publish %s (App %s)" if folder else "Build and publish %s (App %s)") % [p["name"], p["app_id"]])
 
-	# 0) A depot ID the app does not own only fails at the upload, after every
-	# export, and Steam then just says "Access Denied". Ask Steam first.
+	# 0) A depot ID the app does not own, or a SetLive branch that does not
+	# exist, only fails at the upload, after every export, with a vague Steam
+	# error. Ask Steam first.
 	var depot_check := await _check_depots_on_steam(p, steamcmd, description)
 	if depot_check == "stop":
 		return
@@ -2623,7 +2633,7 @@ func _on_build_publish_pressed() -> void:
 		_restore_description(p, description)
 	elif _branch_name(p).is_empty():
 		_mark_login_verified()
-		log_line("Upload complete. Set the build live in Steamworks → Builds. The default branch needs confirmation in the Steam Mobile app; beta branches can be set live there or from the branch field.", COLOR_OK)
+		log_line("Upload complete. Set the build live in Steamworks → Builds; for a released app the default branch needs confirmation in the Steam Mobile app. A beta branch has to exist in Steamworks first; then the branch field sets builds live on it.", COLOR_OK)
 	else:
 		_mark_login_verified()
 		log_line("Upload complete and set live on branch '%s'." % _branch_name(p), COLOR_OK)
@@ -2632,18 +2642,25 @@ func _on_build_publish_pressed() -> void:
 
 
 ## Build & Publish step 0: checks every depot ID of [param p] against the
-## depot list Steam has for its App ID, from _steam_depot_ids when that
-## already covers them, otherwise with one SteamCMD run under the same login
+## depot list Steam has for its App ID, and its "Set live on branch" against
+## the app's branches, from _steam_depot_ids / _steam_branches when those
+## already cover them, otherwise with one SteamCMD run under the same login
 ## the upload uses. Returns "confirmed" when Steam lists them all, "unknown"
-## when the list could not be read (the build goes on), or "stop" when the run
-## ended here (wrong IDs, failed SteamCMD or cancel) and is already cleaned up.
+## when the depot list could not be read (the build goes on), or "stop" when
+## the run ended here (wrong IDs, missing branch, failed SteamCMD or cancel)
+## and is already cleaned up.
 func _check_depots_on_steam(p: Dictionary, steamcmd: String, description: String) -> String:
 	var app_id := str(p["app_id"]).strip_edges()
 	var wanted := PackedStringArray()
 	for d in p["depots"]:
 		wanted.append(str(int(str(d.get("depot_id", "")).strip_edges())))
 	var cached: PackedStringArray = _steam_depot_ids.get(app_id, PackedStringArray())
-	if not cached.is_empty() and _ids_not_listed(wanted, cached).is_empty():
+	var branch := _branch_name(p).to_lower()
+	# A branch the cache does not list, or lists without a live build, may
+	# have been fixed in Steamworks since, so only a branch with a build (or
+	# no branch) may skip the SteamCMD run.
+	var branch_ready := branch.is_empty() or _branch_has_build(_steam_branches.get(app_id, {}), branch)
+	if not cached.is_empty() and _ids_not_listed(wanted, cached).is_empty() and branch_ready:
 		return "confirmed"
 
 	log_step("Checking depots on Steam")
@@ -2669,12 +2686,12 @@ func _check_depots_on_steam(p: Dictionary, steamcmd: String, description: String
 	var listed: PackedStringArray = res["all_ids"]
 	if listed.is_empty():
 		log_line("Steam did not show the depot list of App %s (unreleased apps only show it to an account with Steamworks access to the app), so the depot IDs are not checked. Building anyway." % app_id, COLOR_WARN)
-		log_step_done(true, "not checked")
-		return "unknown"
-	var missing := _ids_not_listed(wanted, listed)
+	var missing := PackedStringArray() if listed.is_empty() else _ids_not_listed(wanted, listed)
 	if missing.is_empty():
-		log_step_done(true)
-		return "confirmed"
+		if _stop_for_missing_branch(p, res["branches"], description):
+			return "stop"
+		log_step_done(true, "not checked" if listed.is_empty() else "")
+		return "unknown" if listed.is_empty() else "confirmed"
 
 	var shown := listed.slice(0, 12)
 	var steam_list := ", ".join(shown) + (", …" if listed.size() > shown.size() else "")
@@ -2697,6 +2714,43 @@ func _check_depots_on_steam(p: Dictionary, steamcmd: String, description: String
 		_refresh_banners()
 	_fail_publish(p, description, "wrong depot IDs")
 	return "stop"
+
+
+## Part of step 0: when [param p] sets a build live on a branch Steam does not
+## list, logs how to create it, ends the run and returns true. SteamCMD cannot
+## create branches, and SetLive on a missing one only fails after the upload.
+## [param builds] is Steam's branch name → live buildid for the app
+## (SteamAppInfo.branch_builds); a listed branch with no build only warns. An
+## empty [param builds] means Steam did not show the branches: nothing is checked.
+func _stop_for_missing_branch(p: Dictionary, builds: Dictionary, description: String) -> bool:
+	var branch := _branch_name(p)
+	if branch.is_empty() or builds.is_empty():
+		return false
+	if builds.has(branch.to_lower()):
+		if not _branch_has_build(builds, branch.to_lower()):
+			log_line("Branch '%s' has no build live yet. If Steam refuses to set this build live on it, set it live by hand in Steamworks → SteamPipe → Builds; later builds from here can then go live on it." % branch, COLOR_WARN)
+		return false
+	var names := PackedStringArray(builds.keys())
+	names.sort()
+	var msg := "App %s has no branch '%s' (Steam lists: %s). SteamCMD cannot create branches: check the spelling, or create it in Steamworks → SteamPipe → Builds (the Builds page button), then build again. Or clear 'Set live on branch' to upload without setting the build live." % [
+		str(p["app_id"]).strip_edges(),
+		branch,
+		", ".join(names),
+	]
+	log_line(msg, COLOR_ERR)
+	if _is_selected(p):
+		_set_field_error(%Branch, true)
+		_run_status = { "text": msg, "color": COLOR_ERR }
+		_refresh_banners()
+	_fail_publish(p, description, "no such branch")
+	return true
+
+
+## True when [param builds] (SteamAppInfo.branch_builds) has a build live on
+## the lower-case [param branch].
+static func _branch_has_build(builds: Dictionary, branch: String) -> bool:
+	var build_id := str(builds.get(branch, ""))
+	return not build_id.is_empty() and build_id != "0"
 
 
 ## The IDs of [param wanted] that are not in [param listed], each once.

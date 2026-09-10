@@ -71,7 +71,7 @@ const ISSUES: Array[Dictionary] = [
 		"id": "branch_failed",
 		"tool": STEAMCMD,
 		"all": ["failed", "branch"],
-		"hint": "The build could not be set live on that branch. Create the branch first in Steamworks → SteamPipe → Builds (Manage branches), check the spelling, or leave 'Set live on branch' empty and set the build live by hand.",
+		"hint": "The build could not be set live on that branch. Check the spelling. The branch has to exist first: create it in Steamworks → SteamPipe → Builds (Manage branches). If it exists but has never had a build live, set this build live on it by hand there once.",
 	},
 	{
 		"id": "disk_write",

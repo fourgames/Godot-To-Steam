@@ -24,9 +24,9 @@ Press **Fetch** in the Depots header to fill the table from the App ID. The app 
 
 ## Branches and setting builds live
 
-**Set live on branch** is SteamPipe's `SetLive` option: after a successful upload SteamCMD sets the build live on that branch. Valve's docs limit this to beta branches ("the 'default' branch can not be set live automatically"), so type a beta branch name such as `beta`, or leave the field empty to upload without setting anything live. Godot To Steam rejects `default` before it starts the export.
+**Set live on branch** is SteamPipe's `SetLive` option: after a successful upload SteamCMD sets the build live on that branch. Leave the field empty to upload without setting anything live. SteamCMD cannot create branches, so a beta branch such as `beta` has to exist in Steamworks → SteamPipe → Builds first; Godot To Steam checks the branch list Steam reports and stops before the export when the branch is missing.
 
-To ship a build on the default branch, upload first, then open Steamworks → Builds (the **Builds** button under the field opens it) and set it live there. For a released app Steam asks you to confirm in the Steam Mobile app, so the account needs a phone number or the mobile app attached, and any change to the account's email or phone number blocks setting builds live for 3 days. Details: https://partner.steamgames.com/doc/sdk/uploading
+The default branch (shown as `default` in Steamworks, called `public` in build scripts) can't be set live from here: Valve's docs say it "can not be set live automatically", and on a released game Steam refuses it with `Access Denied` only after every depot is uploaded. Godot To Steam therefore rejects both `default` and `public` before it starts the export. To ship a build on the default branch, upload with the field empty, then set it live in Steamworks → Builds (the **Builds** button under the field opens it); for a released app Steam asks you to confirm in the Steam Mobile app. The account needs a phone number or the mobile app attached, and any change to the account's email or phone number blocks setting builds live for 3 days. Details: https://partner.steamgames.com/doc/sdk/uploading
 
 ## Steam Guard
 

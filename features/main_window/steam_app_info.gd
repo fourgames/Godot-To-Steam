@@ -1,10 +1,12 @@
 class_name SteamAppInfo
 extends RefCounted
-## Reads the depot list out of SteamCMD's `app_info_print <appid>` output.
+## Reads the depot and branch lists out of SteamCMD's `app_info_print <appid>`
+## output.
 ##
 ## SteamCMD prints the app's KeyValues (Valve's VDF text format) to stdout,
 ## mixed with login and progress lines. [method parse_depots] finds the last
-## KeyValues block for the App ID, parses it and returns the content depots.
+## KeyValues block for the App ID, parses it and returns the content depots;
+## [method branch_names] returns the branches from the same block.
 ## Knows nothing about the UI.
 
 ## Godot export platform names (from export_presets.cfg) for each Steam oslist
@@ -76,6 +78,37 @@ static func uploadable_depot_ids(text: String, app_id: String) -> PackedStringAr
 	for id in ids:
 		out.append(str(id))
 	return out
+
+
+## Every branch of [param app_id] listed in [param text] (the "branches" key
+## Steam stores inside "depots"), as lower-case name → buildid of the build
+## live on it ("" when none is). Password-protected branches are listed too.
+## Empty when the block is missing or Steam did not show the branches, which
+## means "unknown", not "none".
+static func branch_builds(text: String, app_id: String) -> Dictionary:
+	var out := {}
+	var block := _last_block_for(text, app_id)
+	if block.is_empty():
+		return out
+	var app: Dictionary = _parse_keyvalues(block).get(app_id, {})
+	var depots: Dictionary = app.get("depots", {})
+	var branches = depots.get("branches", {})
+	if branches is not Dictionary:
+		return out
+	for key in branches.keys():
+		var name := str(key).strip_edges().to_lower()
+		if name.is_empty():
+			continue
+		var branch = branches[key]
+		out[name] = str(branch.get("buildid", "")).strip_edges() if branch is Dictionary else ""
+	return out
+
+
+## The branch names of [method branch_builds], sorted.
+static func branch_names(text: String, app_id: String) -> PackedStringArray:
+	var names := PackedStringArray(branch_builds(text, app_id).keys())
+	names.sort()
+	return names
 
 
 ## True when a depot restricted to [param oslist] (comma separated, may be "")

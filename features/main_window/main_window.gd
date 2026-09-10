@@ -3285,7 +3285,10 @@ func _resolve_steamcmd(text: String) -> String:
 
 ## Well-known SteamCMD locations: PATH, package-manager dirs, the folders
 ## Valve's docs suggest, and finally this app's own download folder.
-func _steamcmd_candidates() -> PackedStringArray:
+## [param include_user_folders] false skips Desktop/Downloads/Documents on
+## macOS, where touching them pops a privacy prompt; the silent first-launch
+## detect must not ask for access the user never requested.
+func _steamcmd_candidates(include_user_folders: bool = true) -> PackedStringArray:
 	var home := _home_dir()
 	var dirs := _path_dirs()
 	dirs.append_array([
@@ -3299,11 +3302,14 @@ func _steamcmd_candidates() -> PackedStringArray:
 			home.path_join(".steam/steamcmd"),
 			home.path_join("steamcmd"),
 			home.path_join("Steam"),
-			# Where Windows users tend to unzip Valve's archive.
-			home.path_join("Desktop/steamcmd"),
-			home.path_join("Downloads/steamcmd"),
-			home.path_join("Documents/steamcmd"),
 		])
+		if include_user_folders or OS.get_name() != "macOS":
+			dirs.append_array([
+				# Where Windows users tend to unzip Valve's archive.
+				home.path_join("Desktop/steamcmd"),
+				home.path_join("Downloads/steamcmd"),
+				home.path_join("Documents/steamcmd"),
+			])
 	for env_dir in ["ProgramData", "LOCALAPPDATA"]:
 		var base := OS.get_environment(env_dir)
 		if base.is_empty():
@@ -3372,7 +3378,7 @@ func _on_detect_steamcmd_pressed() -> void:
 func _auto_detect_steamcmd() -> void:
 	if not %SteamCmdBinary.text.strip_edges().is_empty():
 		return
-	var found := _steamcmd_candidates()
+	var found := _steamcmd_candidates(false)
 	if found.is_empty():
 		return
 	log_line("Found SteamCMD at %s" % found[0], COLOR_OK)

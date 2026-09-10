@@ -1,11 +1,14 @@
 extends Node
 ## Fetches an app's Steam library capsule (600x900 portrait, 2x when available)
 ## for an App ID and caches it in memory and on disk
-## (user://steam_assets/<app_id>/library_600x900.jpg).
+## (user://steam_assets/<app_id>/library_600x900.jpg, plus a stamp.txt naming
+## the Steam asset it came from).
 ##
 ## Knows nothing about the UI: call [method fetch_header] and listen for
 ## [signal header_ready] / [signal header_failed]. Both carry the App ID that
 ## was requested so the caller can drop late answers after a project switch.
+## A cached capsule is delivered at once and then checked against Steam in the
+## background, so [signal header_ready] can fire a second time with new art.
 
 signal header_ready(app_id: String, texture: Texture2D)
 signal header_failed(app_id: String, reason: String)
@@ -13,26 +16,34 @@ signal header_failed(app_id: String, reason: String)
 ## matches [param name] (case-insensitive), or "" when there is no such app.
 signal app_id_found(name: String, app_id: String)
 
-const API_URL := "https://store.steampowered.com/api/appdetails?appids=%s&filters=basic"
+## Store browse API: the only public endpoint that names the current library
+## capsule. Updated art lives under a hashed path (and may be renamed to
+## library_capsule.jpg), so the fixed paths below can keep serving old art.
+const ITEMS_URL := "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=%s"
+const ASSET_BASE_URL := "https://shared.akamai.steamstatic.com/store_item_assets/"
 const SEARCH_URL := "https://store.steampowered.com/api/storesearch/?term=%s&l=english&cc=US"
 ## Library capsule file names, as listed on the Steam store asset page.
 const CAPSULE_2X_FILE := "library_600x900_2x.jpg"
 const CAPSULE_FILE := "library_600x900.jpg"
-## Current store asset host; the appdetails API does not list the library
-## capsule, but it is served from this fixed path for every app that has one.
+## Fixed per-app paths, tried only when the store API gives no answer. Steam
+## does not keep these in sync with the current store artwork.
 const STORE_2X_URL := "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/%s/" + CAPSULE_2X_FILE
 const STORE_URL := "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/%s/" + CAPSULE_FILE
-## Legacy CDN paths, tried last. Steam does not always keep these in sync
-## with the current store artwork.
 const CDN_2X_URL := "https://cdn.cloudflare.steamstatic.com/steam/apps/%s/" + CAPSULE_2X_FILE
 const CDN_URL := "https://cdn.cloudflare.steamstatic.com/steam/apps/%s/" + CAPSULE_FILE
 const CACHE_DIR := "user://steam_assets"
+const STAMP_FILE := "stamp.txt"
 
 var _http: HTTPRequest
 var _pending_app_id := ""
 var _stage := ""  # "api" | "image"
 var _queue: PackedStringArray = []  # Image URLs still to try, best first.
+var _queue_stamps: PackedStringArray = []  # Asset stamp per queued URL ("" for fixed paths).
+var _stamp := ""  # Stamp of the URL being downloaded.
 var _last_reason := ""
+## Background check of a cached capsule: failures are silent and only art
+## Steam names as current may replace the cache.
+var _quiet := false
 var _texture_cache: Dictionary = {}
 
 var _search_http: HTTPRequest
@@ -60,34 +71,47 @@ func cache_path(app_id: String) -> String:
 	return CACHE_DIR.path_join(app_id).path_join(CAPSULE_FILE)
 
 
+func stamp_path(app_id: String) -> String:
+	return CACHE_DIR.path_join(app_id).path_join(STAMP_FILE)
+
+
 func has_cached(app_id: String) -> bool:
 	return _texture_cache.has(app_id) or FileAccess.file_exists(cache_path(app_id))
 
 
 ## Delivers the header for [param app_id] through the signals. Cached copies
-## are used unless [param force] is set; the signal is always emitted
-## asynchronously so callers can rely on one code path.
+## are used unless [param force] is set, then checked against Steam in the
+## background; the signal is always emitted asynchronously so callers can rely
+## on one code path.
 func fetch_header(app_id: String, force := false) -> void:
+	var quiet := false
 	if not force:
 		if _texture_cache.has(app_id):
 			header_ready.emit.call_deferred(app_id, _texture_cache[app_id])
-			return
-		if FileAccess.file_exists(cache_path(app_id)):
+			quiet = true
+		elif FileAccess.file_exists(cache_path(app_id)):
 			var img := _decode(FileAccess.get_file_as_bytes(cache_path(app_id)))
 			if img != null:
 				var tex := ImageTexture.create_from_image(img)
 				_texture_cache[app_id] = tex
 				header_ready.emit.call_deferred(app_id, tex)
-				return
+				quiet = true
 			# Corrupt cache file: fall through and download again.
 
 	if _http.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
 		_http.cancel_request()
 	_pending_app_id = app_id
+	_quiet = quiet
 	_last_reason = ""
 	_stage = "api"
-	if _http.request(API_URL % app_id) != OK:
-		_try_urls(_legacy_urls(app_id))
+	var input := JSON.stringify({
+		"ids": [{"appid": int(app_id)}],
+		"context": {"language": "english", "country_code": "US"},
+		"data_request": {"include_assets": true},
+	})
+	if _http.request(ITEMS_URL % input.uri_encode()) != OK:
+		_last_reason = "request failed"
+		_on_assets_resolved({})
 
 
 func _on_request_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
@@ -95,13 +119,7 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 	_last_reason = ("HTTP %d" % code) if result == HTTPRequest.RESULT_SUCCESS else KnownIssues.http_result_text(result)
 	match _stage:
 		"api":
-			# The API only lists header.jpg (under a hashed path the capsule is
-			# not served from), so it just confirms the app exists; the capsule
-			# itself comes from the fixed per-app asset paths.
-			if ok and _app_exists(body):
-				_try_urls(_store_urls(_pending_app_id) + _legacy_urls(_pending_app_id))
-			else:
-				_try_urls(_legacy_urls(_pending_app_id))
+			_on_assets_resolved(_capsule_assets(body) if ok else {})
 		"image":
 			if ok:
 				var img := _decode(body)
@@ -110,6 +128,51 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 					return
 				_last_reason = "could not decode image"
 			_next_url()
+
+
+## [param assets] maps stamp -> URL for the current capsule, 2x first; empty
+## when the store API had no answer.
+func _on_assets_resolved(assets: Dictionary) -> void:
+	var urls := PackedStringArray(assets.values())
+	var stamps := PackedStringArray(assets.keys())
+	if _quiet:
+		# Background check: keep the cached image unless Steam names newer art.
+		# The fixed paths are never used here, they are what served stale art.
+		if urls.is_empty() or _read_stamp(_pending_app_id) in stamps:
+			_pending_app_id = ""
+			_stage = ""
+			return
+		_try_urls(urls, stamps)
+		return
+	var fallback := _store_urls(_pending_app_id) + _legacy_urls(_pending_app_id)
+	var blanks := PackedStringArray()
+	blanks.resize(fallback.size())
+	_try_urls(urls + fallback, stamps + blanks)
+
+
+## Reads the library capsule out of a GetItems answer as {stamp: url}, 2x
+## first. The stamp is the asset's path relative to the app folder (e.g.
+## "<hash>/library_capsule_2x.jpg"), which changes whenever the art does.
+func _capsule_assets(body: PackedByteArray) -> Dictionary:
+	var out := {}
+	var parsed = JSON.parse_string(body.get_string_from_utf8())
+	if not parsed is Dictionary or not parsed.get("response") is Dictionary:
+		return out
+	var items = parsed["response"].get("store_items")
+	if not items is Array or items.is_empty() or not items[0] is Dictionary:
+		return out
+	var item: Dictionary = items[0]
+	var assets = item.get("assets")
+	if int(item.get("success", 0)) != 1 or not assets is Dictionary:
+		return out
+	var url_format = assets.get("asset_url_format", "")
+	if not url_format is String or not "${FILENAME}" in url_format:
+		return out
+	for key in ["library_capsule_2x", "library_capsule"]:
+		var file = assets.get(key, "")
+		if file is String and not file.is_empty():
+			out[file] = ASSET_BASE_URL + url_format.replace("${FILENAME}", file)
+	return out
 
 
 ## 2x first; the 2x copy is not present for every app.
@@ -121,8 +184,9 @@ func _legacy_urls(app_id: String) -> PackedStringArray:
 	return PackedStringArray([CDN_2X_URL % app_id, CDN_URL % app_id])
 
 
-func _try_urls(urls: PackedStringArray) -> void:
+func _try_urls(urls: PackedStringArray, stamps: PackedStringArray) -> void:
 	_queue = urls
+	_queue_stamps = stamps
 	_stage = "image"
 	_next_url()
 
@@ -132,20 +196,18 @@ func _next_url() -> void:
 		_fail(_last_reason if not _last_reason.is_empty() else "no image found")
 		return
 	var url := _queue[0]
+	_stamp = _queue_stamps[0]
 	_queue.remove_at(0)
+	_queue_stamps.remove_at(0)
 	if _http.request(url) != OK:
 		_last_reason = "request failed"
 		_next_url()
 
 
-## True when the appdetails JSON reports the pending app as a real store
-## entry; false for {"<id>": {"success": false}} or a malformed payload.
-func _app_exists(body: PackedByteArray) -> bool:
-	var parsed = JSON.parse_string(body.get_string_from_utf8())
-	if not parsed is Dictionary:
-		return false
-	var entry = parsed.get(_pending_app_id)
-	return entry is Dictionary and bool(entry.get("success", false)) and entry.get("data") is Dictionary
+func _read_stamp(app_id: String) -> String:
+	if not FileAccess.file_exists(stamp_path(app_id)):
+		return ""
+	return FileAccess.get_file_as_string(stamp_path(app_id)).strip_edges()
 
 
 func _finish_image(img: Image, bytes: PackedByteArray) -> void:
@@ -153,6 +215,7 @@ func _finish_image(img: Image, bytes: PackedByteArray) -> void:
 	_pending_app_id = ""
 	_stage = ""
 	_queue.clear()
+	_queue_stamps.clear()
 
 	var dir := CACHE_DIR.path_join(app_id)
 	DirAccess.make_dir_recursive_absolute(dir)
@@ -160,6 +223,10 @@ func _finish_image(img: Image, bytes: PackedByteArray) -> void:
 	if f != null:
 		f.store_buffer(bytes)
 		f.close()
+		var s := FileAccess.open(stamp_path(app_id), FileAccess.WRITE)
+		if s != null:
+			s.store_string(_stamp)
+			s.close()
 	else:
 		push_warning("Steam capsule for %s could not be written to %s" % [app_id, cache_path(app_id)])
 
@@ -173,6 +240,9 @@ func _fail(reason: String) -> void:
 	_pending_app_id = ""
 	_stage = ""
 	_queue.clear()
+	_queue_stamps.clear()
+	if _quiet:
+		return  # The cached image is still showing; nothing to report.
 	header_failed.emit(app_id, reason)
 
 

@@ -127,6 +127,24 @@ var _step_failed := false
 var _console_autoscroll := true
 var _console_scroll_lock := false  # true while the script moves the scrollbar
 
+const Motion := preload("res://features/main_window/ui_motion.gd")
+const ConsoleProgress := preload("res://features/main_window/console_progress.gd")
+## Live progress bar in the console: one line (label, bar, percentage)
+## rewritten in place. _bar_para is its paragraph while it is live, else -1.
+const BAR_CELLS := 20
+const BAR_LABEL_WIDTH := 23
+var _bar_para := -1
+var _bar_label := ""
+var _bar_pct := -1
+var _bar_line := ""
+## Reads the running child's progress lines (see ConsoleProgress); null when
+## its output has none.
+var _progress: ConsoleProgress
+## Process frame in which _show_project last cleared the banners. Banners
+## built in that same frame (the app just selected) appear at once; later
+## ones, e.g. from the Godot version probe, grow in.
+var _banners_reset_frame := -1
+
 ## Each project is a Dictionary:
 ## {
 ##   name: String, path: String, kind: "godot" | "folder", godot_binary: String,
@@ -635,10 +653,17 @@ func _remove_project(p: Dictionary) -> void:
 		_auto_fetch_pending = false
 		_cancel_running()
 	log_line("Removed %s from the list." % p["name"], COLOR_WARN)
+	var row := _live_child(%ProjectList, index)
 	_projects.remove_at(index)
 	_save_projects()
-	_rebuild_sidebar()
 	_show_project(-1)
+	if row == null:
+		_rebuild_sidebar()
+		return
+	# The other rows still point at the old indices until the rebuild.
+	for child in %ProjectList.get_children():
+		Motion.ignore_mouse(child)
+	Motion.collapse(row, Motion.OUT, _rebuild_sidebar)
 
 
 ## Folders with a project.godot become Godot apps; any other folder becomes a
@@ -687,7 +712,7 @@ func _on_project_dir_selected(dir: String) -> void:
 			"depots": [],
 		})
 		_selected_index = 0
-		_finish_add_project()
+		_finish_add_project(true)
 	else:
 		_projects.insert(0, {
 			"name": dir.get_file(),
@@ -701,7 +726,7 @@ func _on_project_dir_selected(dir: String) -> void:
 		})
 		_selected_index = 0
 		log_line("No project.godot in %s – added '%s' as a content folder. Build and publish uploads the folder as-is, without a Godot export." % [dir, dir.get_file()], COLOR_INFO)
-		_finish_add_project()
+		_finish_add_project(true)
 
 
 ## Index of the app whose folder is [param dir], or -1.
@@ -713,8 +738,9 @@ func _project_index_for_path(dir: String) -> int:
 
 
 ## Shared tail of adding or re-pointing the selected app: drop cached lookups
-## for its name, persist, and show it.
-func _finish_add_project() -> void:
+## for its name, persist, and show it. A newly [param added] app's row
+## slides into the sidebar.
+func _finish_add_project(added := false) -> void:
 	_app_id_lookups_done.erase(_projects[_selected_index]["name"])
 	var prefix: String = _projects[_selected_index]["name"] + "|"
 	for key in _auto_depot_fetches.keys():
@@ -723,6 +749,22 @@ func _finish_add_project() -> void:
 	_save_projects()
 	_rebuild_sidebar()
 	_show_project(_selected_index)
+	var row := _live_child(%ProjectList, _selected_index)
+	if added and row != null:
+		Motion.grow_in(row, Motion.ROW_IN, Motion.ROW_SLIDE)
+
+
+## Child [param index] of [param parent], not counting children a rebuild
+## has queued for deletion (they stay in the list until the frame ends).
+func _live_child(parent: Node, index: int) -> Control:
+	var i := 0
+	for child in parent.get_children():
+		if child.is_queued_for_deletion():
+			continue
+		if i == index:
+			return child as Control
+		i += 1
+	return null
 
 
 ## Fills in the App ID from the Steam store when the project name matches a
@@ -960,6 +1002,11 @@ func _show_project(index: int) -> void:
 	_godot_status = {}
 	_run_status = {}
 	_dismissed_banners.clear()
+	# The new page's banners appear at once; see _refresh_banners.
+	for child in %StatusStack.get_children():
+		if child != %StatusBanner:
+			child.queue_free()
+	_banners_reset_frame = Engine.get_process_frames()
 	%StatusStack.visible = false
 	%SteamCmdButton.set_pressed_no_signal(not has_project)
 	%NewAppButton.set_pressed_no_signal(false)  # Any real selection ends the pending "New" state.
@@ -1008,28 +1055,77 @@ func _show_project(index: int) -> void:
 
 ## Rebuilds the banners above the build bar: one per thing the user should fix
 ## before publishing, errors first. %StatusBanner is the hidden template.
+## Runs often (every edit that can change a warning), so it updates the stack
+## in place: banners that still apply stay, new ones grow in and the ones
+## that no longer apply (or were dismissed) shrink away.
 func _refresh_banners() -> void:
-	for child in %StatusStack.get_children():
-		if child != %StatusBanner:
-			child.queue_free()
-	var shown := 0
+	var wanted: Array[Dictionary] = []
 	if _selected_index >= 0:
 		for msg in _status_messages():
-			if _dismissed_banners.has(msg["text"]):
-				continue
-			var banner: Control = %StatusBanner.duplicate()
-			banner.unique_name_in_owner = false
-			var label: Label = banner.get_node("BannerRow/BannerLabel")
-			label.text = msg["text"]
-			var dot: Control = banner.get_node("BannerRow/BannerDot")
-			dot.self_modulate = Color(msg["color"])
-			var close: Button = banner.get_node("BannerRow/DismissBannerButton")
-			close.accessibility_name = "Dismiss message"
-			close.pressed.connect(_on_banner_closed.bind(msg["text"], msg.get("id", "")))
-			banner.visible = true
-			%StatusStack.add_child(banner)
-			shown += 1
-	%StatusStack.visible = shown > 0
+			if not _dismissed_banners.has(msg["text"]):
+				wanted.append(msg)
+	var instant := Engine.get_process_frames() == _banners_reset_frame
+	# Slot in the stack (the banner, or its holder while it grows in) per text.
+	var slots := {}
+	var leaving := 0
+	for child in %StatusStack.get_children():
+		var banner := Motion.row_of(child)
+		if banner == %StatusBanner or child.is_queued_for_deletion():
+			continue
+		if banner.has_meta("leaving"):
+			leaving += 1
+		else:
+			slots[banner.get_meta("banner_text", "")] = child
+	var wanted_texts := {}
+	for msg in wanted:
+		wanted_texts[msg["text"]] = true
+	for text: String in slots:
+		if wanted_texts.has(text):
+			continue
+		var slot: Control = slots[text]
+		if instant or slot != Motion.row_of(slot):
+			slot.queue_free()  # Another app's banner, or one still growing in.
+		else:
+			slot.set_meta("leaving", true)
+			leaving += 1
+			Motion.collapse(slot, Motion.OUT, _refresh_banners)
+	var ordered: Array[Control] = []
+	var fresh: Array[Control] = []
+	for msg in wanted:
+		var slot: Control = slots.get(msg["text"])
+		if slot == null:
+			slot = _make_banner(msg)
+			%StatusStack.add_child(slot)
+			fresh.append(slot)
+		else:
+			(Motion.row_of(slot).get_node("BannerRow/BannerDot") as Control).self_modulate = Color(msg["color"])
+		ordered.append(slot)
+	# Errors come first: reorder only when a new banner broke that order.
+	var current := ordered.duplicate()
+	current.sort_custom(func(a: Control, b: Control) -> bool: return a.get_index() < b.get_index())
+	if current != ordered:
+		for slot in ordered:
+			%StatusStack.move_child(slot, -1)
+	if not instant:
+		for banner in fresh:
+			Motion.grow_in(banner, Motion.BANNER_IN)
+	%StatusStack.visible = not wanted.is_empty() or leaving > 0
+
+
+## A copy of the hidden %StatusBanner template for [param msg].
+func _make_banner(msg: Dictionary) -> Control:
+	var banner: Control = %StatusBanner.duplicate()
+	banner.unique_name_in_owner = false
+	banner.set_meta("banner_text", msg["text"])
+	var label: Label = banner.get_node("BannerRow/BannerLabel")
+	label.text = msg["text"]
+	var dot: Control = banner.get_node("BannerRow/BannerDot")
+	dot.self_modulate = Color(msg["color"])
+	var close: Button = banner.get_node("BannerRow/DismissBannerButton")
+	close.accessibility_name = "Dismiss message"
+	close.pressed.connect(_on_banner_closed.bind(msg["text"], msg.get("id", "")))
+	banner.visible = true
+	return banner
 
 
 ## Every banner for the selected app as { "text", "color", "id" }, errors
@@ -1531,10 +1627,14 @@ func _set_refresh_header_enabled(enabled: bool) -> void:
 func _on_header_ready(app_id: String, texture: Texture2D) -> void:
 	if app_id != _current_app_id():
 		return  # Late answer for a project that is no longer selected.
+	# A different app's capsule fades in; a refresh of the same one just swaps.
+	var fresh: bool = not %HeaderImage.visible or %HeaderImage.get_meta("app_id", "") != app_id
 	%HeaderImage.texture = texture
 	%HeaderImage.set_meta("app_id", app_id)
 	%HeaderImage.visible = true
 	%HeaderPlaceholder.visible = false
+	if fresh:
+		Motion.fade_in(%HeaderImage)
 	_set_refresh_header_enabled(true)
 	log_line("Steam capsule ready for App %s" % app_id, COLOR_INFO)
 
@@ -1964,6 +2064,9 @@ func _on_add_depot_pressed() -> void:
 	_save_projects()
 	_rebuild_depot_rows()
 	_refresh_banners()
+	var row := _live_child(%DepotRows, 0)
+	if row != null:
+		Motion.grow_in(row, Motion.DEPOT_IN)
 
 
 ## Asks SteamCMD for the App ID's depot list and appends a row for every depot
@@ -2133,6 +2236,13 @@ func _merge_fetched_depots(found: Array[Dictionary]) -> void:
 		_save_projects()
 		_rebuild_depot_rows()
 		_refresh_banners()
+		# The new rows are at the top; they grow in one after another.
+		var rows: Array[Control] = []
+		for i in added.size():
+			rows.append(_live_child(%DepotRows, i))
+		for i in rows.size():
+			if rows[i] != null:
+				Motion.grow_in(rows[i], Motion.DEPOT_IN, 0.0, i * Motion.STAGGER)
 		log_line("Added %d depot(s): %s" % [added.size(), ", ".join(added)], COLOR_OK)
 	if skipped > 0:
 		log_line("Skipped %d depot(s) already in the table." % skipped, COLOR_INFO)
@@ -2290,9 +2400,19 @@ func _make_depot_remove_button(index: int) -> Button:
 		_depot_errors.clear()
 		_projects[_selected_index]["depots"].remove_at(index)
 		_save_projects()
-		_rebuild_depot_rows()
 		_refresh_banners()
 		_rebuild_sidebar()
+		# The row shrinks away, then the table is rebuilt. The other rows still
+		# point at the old indices until then, so they ignore the mouse.
+		var row: Node = remove
+		while row != null and row.get_parent() != %DepotRows:
+			row = row.get_parent()
+		if row == null:
+			_rebuild_depot_rows()
+			return
+		for child in %DepotRows.get_children():
+			Motion.ignore_mouse(child)
+		Motion.collapse(row, Motion.OUT, _rebuild_depot_rows)
 	)
 	return remove
 
@@ -3474,6 +3594,7 @@ func _on_download_steamcmd_pressed() -> void:
 		var total := _steamcmd_http.get_body_size()
 		if total > 0:
 			%SteamCmdStatusLabel.text = "Downloading…  %d%%" % int(100.0 * got / total)
+			_progress_update(url.get_file(), 100.0 * got / total)
 		else:
 			%SteamCmdStatusLabel.text = "Downloading…  %d KB" % (got >> 10)
 		# The request has no timeout (the archive can take a while), so a
@@ -3485,6 +3606,7 @@ func _on_download_steamcmd_pressed() -> void:
 			_steamcmd_http.cancel_request()
 			_steamcmd_downloading = false
 			DirAccess.remove_absolute(_steamcmd_archive)
+			_finish_bar(false)
 			log_line("The SteamCMD download stalled (no data for %.0f s). Check your internet connection, VPN or firewall and press Download SteamCMD again, or download it yourself from %s and pick it with the folder button." % [DOWNLOAD_STALL_MS / 1000.0, STEAMCMD_DOCS_URL], COLOR_ERR)
 			log_step_done(false, "stalled")
 			_refresh_setup_state()
@@ -3494,6 +3616,7 @@ func _on_download_steamcmd_pressed() -> void:
 	# cancel_request() never emits request_completed, so finish up here.
 	if _cancel_requested:
 		DirAccess.remove_absolute(_steamcmd_archive)
+		_finish_bar(false)
 		%SteamCmdStatusLabel.text = "Download cancelled"
 		_bail_if_cancelled()
 		_refresh_setup_state()
@@ -3502,6 +3625,7 @@ func _on_download_steamcmd_pressed() -> void:
 func _on_steamcmd_download_completed(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
 	_steamcmd_downloading = false
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		_finish_bar(false)
 		var why := ("Valve's server answered HTTP %d" % code) if result == HTTPRequest.RESULT_SUCCESS else KnownIssues.http_result_text(result)
 		log_line("SteamCMD download failed: %s. Press Download SteamCMD to try again, or download it yourself from %s and pick it with the folder button." % [why, STEAMCMD_DOCS_URL], COLOR_ERR)
 		log_step_done(false, "HTTP %d" % code if result == HTTPRequest.RESULT_SUCCESS else "no download")
@@ -3509,6 +3633,7 @@ func _on_steamcmd_download_completed(result: int, code: int, _headers: PackedStr
 		_refresh_setup_state()
 		_set_busy(false)
 		return
+	_finish_bar(true)
 	log_line("Downloaded %s" % _steamcmd_archive.get_file(), COLOR_INFO)
 	log_step_done(true)
 	log_step("Unpacking SteamCMD")
@@ -3685,6 +3810,7 @@ func run_process(exe: String, args: PackedStringArray, tool := "") -> int:
 	log_cmd(exe, _redact(args))
 	_child_tool = tool
 	_seen_issues.clear()
+	_progress = ConsoleProgress.new(tool) if ConsoleProgress.reads(tool) else null
 
 	var info := OS.execute_with_pipe(exe, args, false)
 	if info.is_empty():
@@ -3730,8 +3856,10 @@ func run_process(exe: String, args: PackedStringArray, tool := "") -> int:
 	await get_tree().process_frame
 	if _awaiting_guard_code:
 		_end_guard_wait()
+	_progress = null
 
 	if _cancel_requested:
+		_finish_bar(false)
 		log_line("Stopped.", COLOR_WARN)
 	else:
 		log_exit(exit_code)
@@ -3875,12 +4003,28 @@ func _emit_pipe_line(line: String, is_stderr: bool) -> void:
 	line = _mask_sent_password(_ansi_re.sub(line, "", true))
 	if line.is_empty():
 		return
-	log_out(line, is_stderr)
+	if not _show_progress(line):
+		log_out(line, is_stderr)
 	if _capturing and not is_stderr:
 		_capture_line(line)
 	_check_guard_prompt(line)
 	_check_guard_failure(line)
 	_check_known_issue(line)
+
+
+## Feeds [param line] to the running child's progress reader. Returns true
+## when the line was folded into a progress bar and must not be printed.
+func _show_progress(line: String) -> bool:
+	if _progress == null:
+		return false
+	var step := _progress.feed(line)
+	if step.is_empty():
+		return false
+	if step.has("label"):
+		_progress_update(step["label"], step["pct"])
+		if step.get("end", false):
+			_end_bar()
+	return not step.get("print", false)
 
 
 ## Notes which KnownIssues entry [param line] matches, once per process.
@@ -3925,7 +4069,8 @@ func _emit_pipe_prompt(text: String, is_stderr: bool) -> void:
 	text = _mask_sent_password(_ansi_re.sub(text, "", true))
 	if text.strip_edges().is_empty():
 		return
-	log_out(text, is_stderr)
+	if not _show_progress(text):
+		log_out(text, is_stderr)
 	_check_guard_prompt(text)
 
 
@@ -4353,6 +4498,7 @@ func log_banner(title: String) -> void:
 ## [method log_step_done] closes it with a ✓/✗ status line.
 func log_step(title: String) -> void:
 	_close_step_if_open()
+	_end_bar()
 	_emit("[color=%s]▸[/color] [color=%s]%s[/color]" % [COLOR_TEXT_2, COLOR_TEXT, _bb_escape(title)])
 	_step_open = true
 	_step_failed = false
@@ -4363,6 +4509,7 @@ func log_step(title: String) -> void:
 func log_step_done(ok: bool, note: String = "") -> void:
 	if not _step_open:
 		return
+	_end_bar()  # The status line goes under the bar, not above it.
 	var elapsed := "%.1fs" % ((Time.get_ticks_msec() - _step_started_ms) / 1000.0)
 	var detail := elapsed if note.is_empty() else "%s · %s" % [elapsed, _bb_escape(note)]
 	_step_open = false
@@ -4387,6 +4534,7 @@ func log_out(line: String, is_stderr: bool) -> void:
 
 ## Exit status of a child process.
 func log_exit(code: int) -> void:
+	_finish_bar(code == 0)
 	if code != 0 and _step_open:
 		_step_failed = true
 	_emit("[color=%s]↳ exit %d[/color]" % [COLOR_MUTED if code == 0 else COLOR_ERR, code])
@@ -4402,23 +4550,112 @@ func _bb_escape(text: String) -> String:
 	return text.replace("[", "[lb]")
 
 
-## The single writer: timestamp, optional step gutter, body, newline.
+## The single writer: timestamp, optional step gutter, body, newline. A live
+## progress bar stays the last line: it is taken out, the new line goes in,
+## and the bar goes back under it.
 func _emit(body: String, gutter_color: String = COLOR_GUTTER) -> void:
-	var stamp := Time.get_time_string_from_system()
 	var gutter := "[color=%s]│[/color] " % gutter_color if _step_open else "  "
-	%Console.append_text("[color=%s]%s[/color]  %s%s\n" % [COLOR_STAMP, stamp, gutter, body])
+	var line := "[color=%s]%s[/color]  %s%s\n" % [COLOR_STAMP, _console_stamp(), gutter, body]
+	var bar_last := _bar_is_last()
+	if bar_last:
+		%Console.remove_paragraph(_bar_para)
+	%Console.append_text(line)
+	if bar_last:
+		%Console.append_text(_bar_line)
+		_bar_para = %Console.get_paragraph_count() - 2
 	_scroll_console_to_bottom()
 
 
+## Console timestamp (local time).
+func _console_stamp() -> String:
+	return Time.get_time_string_from_system()
+
+
 func _spacer() -> void:
+	_end_bar()
 	%Console.append_text("\n")
 
 
 func _clear_console() -> void:
 	%Console.clear()
+	_bar_para = -1
 	_step_open = false
 	_step_failed = false
 	_set_console_autoscroll(true)
+
+
+## Moves the live progress bar [param label] to [param pct] (0–100), or
+## starts a new bar line for it. The line is only rewritten when the whole
+## percentage changes. A bar that reaches 100 % is done and stays as is.
+## Labels are padded so stacked bars line up; the narrow console (beside the
+## page) drops the label so the bar fits on one line.
+func _progress_update(label: String, pct: float, failed := false) -> void:
+	var whole := clampi(int(pct), 0, 100)
+	var same := _bar_para >= 0 and label == _bar_label
+	if same and whole == _bar_pct and not failed:
+		return
+	if same and _bar_is_last():
+		%Console.remove_paragraph(_bar_para)
+	else:
+		_end_bar()
+	_bar_label = label
+	_bar_pct = whole
+	var filled := int(BAR_CELLS * whole / 100.0)
+	var done := whole >= 100
+	var fill_color := COLOR_ERR if failed else (COLOR_OK if done else COLOR_CMD)
+	var stamp := _console_stamp()
+	var gutter := "│ " if _step_open else "  "
+	var shown := _bar_label_that_fits(label, "%s  %s%s  %3d%%" % [stamp, gutter, "█".repeat(BAR_CELLS), whole])
+	var body := "[color=%s]%s[/color][color=%s]%s[/color][color=%s]%s[/color]  [color=%s]%3d%%[/color]" % [
+		COLOR_TEXT_2, _bb_escape(shown),
+		fill_color, "█".repeat(filled),
+		COLOR_GUTTER, "█".repeat(BAR_CELLS - filled),
+		COLOR_OK if done else COLOR_TEXT, whole,
+	]
+	var gutter_bb := "[color=%s]│[/color] " % COLOR_GUTTER if _step_open else "  "
+	_bar_line = "[color=%s]%s[/color]  %s%s\n" % [COLOR_STAMP, stamp, gutter_bb, body]
+	%Console.append_text(_bar_line)
+	_bar_para = %Console.get_paragraph_count() - 2
+	_scroll_console_to_bottom()
+	if done or failed:
+		_end_bar()
+
+
+## The label part of a bar line whose other text is [param rest]: padded so
+## stacked bars line up when the console is wide enough, unpadded when it is
+## tighter, and dropped when even that would wrap the bar onto two lines.
+func _bar_label_that_fits(label: String, rest: String) -> String:
+	var console: RichTextLabel = %Console
+	var font := console.get_theme_font("normal_font")
+	var font_size := console.get_theme_font_size("normal_font_size")
+	var scroll := console.get_v_scroll_bar()
+	var room := console.size.x - 8.0
+	if scroll.visible:
+		room -= scroll.get_combined_minimum_size().x
+	for shown: String in [label.rpad(BAR_LABEL_WIDTH) + "  ", label + "  "]:
+		if font.get_string_size(shown + rest, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x <= room:
+			return shown
+	return ""
+
+
+## Stops tracking the live bar; its line stays in the console as it is.
+func _end_bar() -> void:
+	_bar_para = -1
+	_bar_pct = -1
+
+
+## Ends the live bar at the end of a child process: a clean exit fills it
+## (the tool may stop printing at 99 %), a failed one colours it red.
+func _finish_bar(ok: bool) -> void:
+	if _bar_para < 0:
+		return
+	if _bar_is_last():
+		_progress_update(_bar_label, 100.0 if ok else _bar_pct, not ok)
+	_end_bar()
+
+
+func _bar_is_last() -> bool:
+	return _bar_para >= 0 and _bar_para == %Console.get_paragraph_count() - 2
 
 
 ## Console header button: puts [method _diagnostics_report] on the clipboard

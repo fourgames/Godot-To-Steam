@@ -16,8 +16,8 @@ extends RefCounted
 ## callers run writes on a thread. Calls must not overlap. Knows nothing about
 ## the UI.
 
-const SERVICE := "Godot To Steam"
-const LINUX_SERVICE := "godot-to-steam"
+const SERVICE := "GodotPipe"
+const LINUX_SERVICE := "godotpipe"
 const WINDOWS_FILE := "user://secrets.cfg"
 const SECURITY := "/usr/bin/security"
 ## A tool that has not exited after this long (say, a keyring stuck waiting

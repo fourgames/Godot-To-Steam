@@ -1,6 +1,6 @@
 class_name KnownIssues
 extends RefCounted
-## Known failure signatures in SteamCMD and Godot output, each paired with the
+## Known failure signatures in SteamCMD, butler and Godot output, each paired with the
 ## fix a user can apply without help.
 ##
 ## [method match_line] is fed every line a child process prints; the caller
@@ -13,6 +13,7 @@ extends RefCounted
 
 const STEAMCMD := "steamcmd"
 const GODOT := "godot"
+const BUTLER := "butler"
 
 ## { id, tool, all: substrings (lowercase) that must all appear, hint,
 ## minor (optional): true for side notes that never lead the explanation }.
@@ -98,6 +99,28 @@ const ISSUES: Array[Dictionary] = [
 		"all": ["could not create child process"],
 		"hint": "The program could not be started. Pick the program itself rather than a shortcut or launcher, and make sure it is executable (Terminal: chmod +x \"<path>\"). On macOS, a program downloaded in a browser may be blocked until you open it once from Finder (right-click → Open).",
 	},
+	# --- butler (itch.io) ----------------------------------------------------
+	{
+		# "itch.io API error (403): /wharf/builds: invalid key"
+		"id": "itch_invalid_key",
+		"tool": BUTLER,
+		"all": ["invalid key"],
+		"hint": "itch.io did not accept the API key. Open the Setup page, paste a key from itch.io → Settings → API keys and press Sign in. A key stops working when it is revoked on that page.",
+	},
+	{
+		# "No credentials and stdin is not a terminal - terminating."
+		"id": "itch_no_key",
+		"tool": BUTLER,
+		"all": ["no credentials"],
+		"hint": "butler got no itch.io API key. Paste your key on the Setup page and press Sign in, then publish again.",
+	},
+	{
+		# "invalid spec: foobar, missing channel (examples: …)"
+		"id": "itch_invalid_target",
+		"tool": BUTLER,
+		"all": ["invalid spec"],
+		"hint": "The itch.io game is not written as user/game. Use the part of the game page address around .itch.io: for https://you.itch.io/my-game that is you/my-game, or pick the game from the list.",
+	},
 	# --- Godot export --------------------------------------------------------
 	{
 		"id": "export_templates",
@@ -164,7 +187,7 @@ const ISSUES: Array[Dictionary] = [
 
 
 ## First issue whose substrings all occur in [param line], for output of
-## [param tool] ([constant STEAMCMD] or [constant GODOT]); {} when none does.
+## [param tool] ([constant STEAMCMD], [constant BUTLER] or [constant GODOT]); {} when none does.
 static func match_line(line: String, tool: String) -> Dictionary:
 	var lower := line.to_lower()
 	for issue in ISSUES:

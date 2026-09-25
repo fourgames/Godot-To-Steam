@@ -6,6 +6,7 @@
 [ext_resource type="Shader" uid="uid://ch7kb2t2kl03s" path="res://features/main_window/rounded_rect.gdshader" id="4_rounded"]
 [ext_resource type="Texture2D" uid="uid://b2qo1wsn5r6hs" path="res://public/icons/editor/visibility_hidden.svg" id="5_eye_closed"]
 [ext_resource type="Script" uid="uid://c0ts8n8mbd0fa" path="res://features/main_window/steam_profile.gd" id="6_steam_profile"]
+[ext_resource type="Script" path="res://features/main_window/itch_api.gd" id="26_itch_api"]
 [ext_resource type="Texture2D" uid="uid://d1tw60veou2x4" path="res://public/icons/editor/add.svg" id="8_add"]
 [ext_resource type="Script" uid="uid://odyitkek5kp8" path="res://features/main_window/discord_widget.gd" id="8_discord_widget"]
 [ext_resource type="Texture2D" uid="uid://cbg4o60wa3pfp" path="res://public/icons/editor/script.svg" id="10_script"]
@@ -120,10 +121,10 @@ alignment = 0
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
-tooltip_text = "Steam account and SteamCMD, shared by every app"
+tooltip_text = "itch.io and Steam tools and accounts, shared by every app"
 theme_type_variation = &"SidebarNav"
 toggle_mode = true
-text = "SteamCMD"
+text = "Setup"
 icon = ExtResource("11_asset_store")
 alignment = 0
 
@@ -182,11 +183,88 @@ theme_type_variation = &"SidebarFooter"
 layout_mode = 2
 theme_override_constants/separation = 8
 
+[node name="ItchAccountHeader" type="Button" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+tooltip_text = "Open the Setup page"
+theme_type_variation = &"SidebarItem"
+
+[node name="HeaderRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/ItchAccountHeader"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_right = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="Avatar" type="PanelContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/ItchAccountHeader/HeaderRow"]
+custom_minimum_size = Vector2(26, 26)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_type_variation = &"Avatar"
+
+[node name="ItchAvatarLetter" type="Label" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/ItchAccountHeader/HeaderRow/Avatar"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"OnAccent"
+text = "i"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ItchAvatarImage" type="TextureRect" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/ItchAccountHeader/HeaderRow/Avatar"]
+unique_name_in_owner = true
+visible = false
+texture_filter = 2
+material = SubResource("ShaderMaterial_avatar")
+custom_minimum_size = Vector2(26, 26)
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="NameBox" type="VBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/ItchAccountHeader/HeaderRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+mouse_filter = 2
+theme_override_constants/separation = 0
+
+[node name="ItchAccountName" type="Label" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/ItchAccountHeader/HeaderRow/NameBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "itch.io account"
+text_overrun_behavior = 3
+
+[node name="ItchAccountSub" type="Label" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/ItchAccountHeader/HeaderRow/NameBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Caption"
+text = "Not signed in"
+text_overrun_behavior = 3
+
+[node name="ItchChevron" type="TextureRect" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/ItchAccountHeader/HeaderRow"]
+unique_name_in_owner = true
+modulate = Color(0.4196, 0.4196, 0.4196, 1)
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+texture = ExtResource("19_tree_right")
+expand_mode = 1
+stretch_mode = 5
+
 [node name="SteamAccountHeader" type="Button" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout" unique_id=785314105]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
-tooltip_text = "Open the SteamCMD page"
+tooltip_text = "Open the Setup page"
 theme_type_variation = &"SidebarItem"
 
 [node name="HeaderRow" type="HBoxContainer" parent="Layout/Sidebar/SidebarLayout/SteamAuthPanel/AuthLayout/SteamAccountHeader" unique_id=2030957260]
@@ -314,7 +392,7 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"Heading"
-text = "SteamCMD"
+text = "Setup"
 text_overrun_behavior = 3
 
 [node name="ProjectHeaderButton" type="Button" parent="Layout/Content/MainView/ProjectHeaderMargin/TitleBlock/TitleRow" unique_id=298640581]
@@ -396,6 +474,253 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 22
+
+[node name="ButlerSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ButlerHeader" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ButlerSectionLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"SectionLabel"
+text = "butler (itch.io upload tool)"
+
+[node name="DownloadButlerButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Downloads itch.io's official butler into this app's data folder and fills in the path"
+theme_type_variation = &"FlatButton"
+text = "Download butler"
+icon = ExtResource("11_asset_store")
+
+[node name="DetectButlerButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Find butler on PATH, in the itch app and in this app's folder"
+theme_type_variation = &"FlatButton"
+text = "Find"
+icon = ExtResource("21_search")
+
+[node name="ButlerCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="ButlerRows" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="StatusRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="StatusLabelTitle" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows/StatusRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Status"
+
+[node name="ButlerDot" type="Panel" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows/StatusRow"]
+unique_name_in_owner = true
+self_modulate = Color(0.4196, 0.4196, 0.4196, 1)
+custom_minimum_size = Vector2(8, 8)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_type_variation = &"Dot"
+
+[node name="ButlerStatusLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"Muted"
+text = "Not installed"
+text_overrun_behavior = 3
+
+[node name="ButlerPathRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ButlerLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows/ButlerPathRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="ButlerLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows/ButlerPathRow/ButlerLabelRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Binary"
+
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows/ButlerPathRow/ButlerLabelRow"]
+layout_mode = 2
+theme_type_variation = &"RequiredMark"
+text = "*"
+
+[node name="ButlerWebsiteButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows/ButlerPathRow/ButlerLabelRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Open butler's documentation on itch.io"
+theme_type_variation = &"IconButton"
+icon = ExtResource("17_external_link")
+icon_alignment = 1
+
+[node name="ButlerBinary" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows/ButlerPathRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Path to butler, itch.io's upload tool, or just 'butler' if it is on your PATH. Shared by all apps."
+placeholder_text = "butler or full path"
+
+[node name="BrowseButlerButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ButlerSection/ButlerCard/ButlerRows/ButlerPathRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Pick the butler executable (butler.exe on Windows)"
+theme_type_variation = &"IconButton"
+icon = ExtResource("20_folder")
+icon_alignment = 1
+
+[node name="ItchAccountSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ItchHeader" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ItchSectionLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"SectionLabel"
+text = "itch.io account"
+
+[node name="ItchSignOutButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchHeader"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+tooltip_text = "Remove the API key from this app (it keeps working on itch.io until you revoke it there)"
+theme_type_variation = &"FlatButton"
+text = "Sign out"
+icon = ExtResource("25_clear")
+
+[node name="ItchSignInButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Check the API key with itch.io"
+theme_type_variation = &"FlatButton"
+text = "Sign in"
+icon = ExtResource("23_key")
+
+[node name="ItchCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="ItchRows" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="StatusRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="StatusLabelTitle" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/StatusRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Status"
+
+[node name="ItchDot" type="Panel" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/StatusRow"]
+unique_name_in_owner = true
+self_modulate = Color(0.4196, 0.4196, 0.4196, 1)
+custom_minimum_size = Vector2(8, 8)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_type_variation = &"Dot"
+
+[node name="ItchStatusLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"Muted"
+text = "Not signed in"
+text_overrun_behavior = 3
+
+[node name="KeyRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="KeyLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/KeyRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="KeyLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/KeyRow/KeyLabelRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "API key"
+
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/KeyRow/KeyLabelRow"]
+layout_mode = 2
+theme_type_variation = &"RequiredMark"
+text = "*"
+
+[node name="ItchKeysPageButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/KeyRow/KeyLabelRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Open itch.io → Settings → API keys, where you generate a key"
+theme_type_variation = &"IconButton"
+icon = ExtResource("17_external_link")
+icon_alignment = 1
+
+[node name="ItchApiKey" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/KeyRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "An API key from itch.io → Settings → API keys. butler uploads with it; it is never put on a command line or in a settings file."
+placeholder_text = "API key from itch.io → Settings → API keys"
+secret = true
+
+[node name="ToggleItchKeyVisible" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/KeyRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Show API key"
+theme_type_variation = &"IconButton"
+toggle_mode = true
+icon = ExtResource("5_eye_closed")
+icon_alignment = 1
+
+[node name="RememberItchKeyRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/KeyRow"]
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Kept in your system's credential store (macOS Keychain, Windows user encryption or the Linux keyring), never in a settings file. Leave off to paste the key again after every start."
+theme_override_constants/separation = 6
+
+[node name="RememberItchKey" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/KeyRow/RememberItchKeyRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"CheckToggle"
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("18_check")
+icon_alignment = 1
+
+[node name="RememberItchKeyLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/ItchAccountSection/ItchCard/ItchRows/KeyRow/RememberItchKeyRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Remember"
 
 [node name="SteamCmdSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage" unique_id=818928269]
 layout_mode = 2
@@ -821,6 +1146,67 @@ layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 22
 
+[node name="TargetsSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TargetsHeader" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection"]
+layout_mode = 2
+
+[node name="TargetsLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection/TargetsHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"SectionLabel"
+text = "Publish to"
+
+[node name="TargetsCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="TargetsRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection/TargetsCard"]
+layout_mode = 2
+theme_override_constants/separation = 24
+
+[node name="ItchTargetRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection/TargetsCard/TargetsRow"]
+layout_mode = 2
+tooltip_text = "Publish this app to itch.io"
+theme_override_constants/separation = 6
+
+[node name="ItchTargetToggle" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection/TargetsCard/TargetsRow/ItchTargetRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"CheckToggle"
+toggle_mode = true
+icon = ExtResource("18_check")
+icon_alignment = 1
+
+[node name="ItchTargetLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection/TargetsCard/TargetsRow/ItchTargetRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "itch.io"
+
+[node name="SteamTargetRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection/TargetsCard/TargetsRow"]
+layout_mode = 2
+tooltip_text = "Publish this app to Steam"
+theme_override_constants/separation = 6
+
+[node name="SteamTargetToggle" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection/TargetsCard/TargetsRow/SteamTargetRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(18, 18)
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"CheckToggle"
+toggle_mode = true
+icon = ExtResource("18_check")
+icon_alignment = 1
+
+[node name="SteamTargetLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/TargetsSection/TargetsCard/TargetsRow/SteamTargetRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Steam"
+
 [node name="GodotSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=777687875]
 unique_name_in_owner = true
 layout_mode = 2
@@ -915,6 +1301,7 @@ icon = ExtResource("20_folder")
 icon_alignment = 1
 
 [node name="SteamSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=1308397288]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 8
 
@@ -1053,6 +1440,79 @@ size_flags_horizontal = 3
 tooltip_text = "Steamworks beta branch to set this build live on after upload (e.g. beta). The default branch can't be set live from here; leave empty and set it live in Steamworks yourself."
 placeholder_text = "beta"
 
+[node name="ItchSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ItchSectionHeader" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection"]
+layout_mode = 2
+
+[node name="ItchGameSectionLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchSectionHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"SectionLabel"
+text = "itch.io"
+
+[node name="ItchPageButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchSectionHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Enter the game as user/game first"
+theme_type_variation = &"FlatButton"
+disabled = true
+text = "Open page"
+icon = ExtResource("17_external_link")
+
+[node name="ItchGameCard" type="PanelContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection"]
+layout_mode = 2
+theme_type_variation = &"Card"
+
+[node name="ItchGameRows" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchGameCard"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ItchTargetRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchGameCard/ItchGameRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ItchTargetLabelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchGameCard/ItchGameRows/ItchTargetRow"]
+custom_minimum_size = Vector2(160, 0)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="ItchTargetLabel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchGameCard/ItchGameRows/ItchTargetRow/ItchTargetLabelRow"]
+layout_mode = 2
+theme_type_variation = &"FieldLabel"
+text = "Game"
+
+[node name="Star" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchGameCard/ItchGameRows/ItchTargetRow/ItchTargetLabelRow"]
+layout_mode = 2
+theme_type_variation = &"RequiredMark"
+text = "*"
+
+[node name="ItchTarget" type="LineEdit" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchGameCard/ItchGameRows/ItchTargetRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "The itch.io game as user/game: for https://you.itch.io/my-game that is you/my-game. Pasting the page address works too. Create the game on itch.io first (it can stay a draft)."
+placeholder_text = "you/my-game"
+
+[node name="PickItchGameButton" type="MenuButton" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchGameCard/ItchGameRows/ItchTargetRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Pick one of your itch.io games"
+theme_type_variation = &"FlatButton"
+text = "My games"
+icon = ExtResource("15_arrow_down")
+flat = false
+
+[node name="ItchChannelsHint" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/ItchSection/ItchGameCard/ItchGameRows"]
+layout_mode = 2
+theme_type_variation = &"Caption"
+text = "Each build row below is pushed to its own channel. Channel names with windows, mac or linux get that platform on itch.io."
+autowrap_mode = 3
+
 [node name="DepotsSection" type="VBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings" unique_id=1391297409]
 layout_mode = 2
 theme_override_constants/separation = 8
@@ -1064,7 +1524,7 @@ layout_mode = 2
 layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"SectionLabel"
-text = "Depots"
+text = "Builds"
 
 [node name="AddDepotButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsHeader" unique_id=703644302]
 unique_name_in_owner = true
@@ -1133,6 +1593,7 @@ theme_type_variation = &"RequiredMark"
 text = "*"
 
 [node name="ColDepotRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns" unique_id=1751315118]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(64, 0)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -1157,6 +1618,21 @@ theme_type_variation = &"IconButton"
 disabled = true
 icon = ExtResource("17_external_link")
 icon_alignment = 1
+
+[node name="ColChannelRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 3
+
+[node name="ColChannel" type="Label" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns/ColChannelRow"]
+layout_mode = 2
+tooltip_text = "itch.io channel each row is pushed to; empty skips the row on itch.io"
+mouse_filter = 1
+theme_type_variation = &"Caption"
+text = "itch.io channel"
 
 [node name="ColOutputRow" type="HBoxContainer" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/ProjectSettings/DepotsSection/DepotsCard/DepotsLayout/DepotColumns" unique_id=251444151]
 unique_name_in_owner = true
@@ -1426,6 +1902,16 @@ file_mode = 0
 access = 2
 use_native_dialog = true
 
+[node name="ButlerDialog" type="FileDialog" parent="."]
+unique_name_in_owner = true
+title = "Choose the butler program"
+size = Vector2i(800, 560)
+ok_button_text = "Select"
+mode_overrides_title = false
+file_mode = 0
+access = 2
+use_native_dialog = true
+
 [node name="DepotFolderDialog" type="FileDialog" parent="." unique_id=83078245]
 unique_name_in_owner = true
 title = "Choose the depot folder"
@@ -1443,6 +1929,10 @@ script = ExtResource("3_steam_assets")
 [node name="SteamProfile" type="Node" parent="." unique_id=1943679911]
 unique_name_in_owner = true
 script = ExtResource("6_steam_profile")
+
+[node name="ItchApi" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("26_itch_api")
 
 [node name="DiscordWidget" type="Node" parent="." unique_id=1545883013]
 unique_name_in_owner = true

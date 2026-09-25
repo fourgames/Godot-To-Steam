@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="Godot To Steam"
+config/name="GodotPipe"
 config/version="1.0.0"
 run/main_scene="uid://ccwbs581hfimh"
 config/features=PackedStringArray("4.7")

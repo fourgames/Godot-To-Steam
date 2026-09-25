@@ -1,11 +1,13 @@
 class_name MainWindow
 extends Control
-## Godot To Steam – main window controller.
+## GodotPipe – main window controller.
 ##
 ## Owns the sidebar project list, the per-project settings form (Godot binary,
-## App ID, branch, depot table), the Steam auth panel with automatic TOTP, and
-## the live debug console. Child processes (Godot export + SteamCMD upload)
-## stream their output into the console line by line.
+## publish targets, App ID, branch, itch.io game, build table), the Steam and
+## itch.io accounts, and the live debug console. Build & Publish exports once
+## and then uploads to each enabled target in turn: Steam (SteamCMD), then
+## itch.io (butler). Child processes stream their output into the console
+## line by line.
 
 const PROJECTS_FILE := "user://projects.cfg"
 const SETTINGS_FILE := "user://settings.cfg"
@@ -50,7 +52,7 @@ const ICON_COPY := preload("res://public/icons/editor/action_copy.svg")
 const ICON_CHECK := preload("res://public/icons/editor/import_check.svg")
 ## The copy button puts a redacted support report on the clipboard (see
 ## _diagnostics_report), with at most this many console lines.
-const COPY_TOOLTIP := "Copy the console and your setup, ready to paste to an AI or on Discord (passwords, secrets, your Steam account name and home folder are removed)"
+const COPY_TOOLTIP := "Copy the console and your setup, ready to paste to an AI or on Discord (passwords, keys, secrets, your account names and home folder are removed)"
 const REPORT_CONSOLE_LINES := 5000
 const BUILD_TOOLTIP := "Build and publish"
 const STOP_TOOLTIP := "Stop what is running"
@@ -58,7 +60,7 @@ const STOP_TOOLTIP := "Stop what is running"
 
 ## App name from project.godot, so console and diagnostics text follow it.
 static func _app_name() -> String:
-	return str(ProjectSettings.get_setting("application/config/name", "Godot To Steam"))
+	return str(ProjectSettings.get_setting("application/config/name", "GodotPipe"))
 
 
 ## "1 depot", "3 depots".
@@ -156,12 +158,16 @@ var _banners_reset_frame := -1
 ## Each project is a Dictionary:
 ## {
 ##   name: String, path: String, kind: "godot" | "folder", godot_binary: String,
-##   app_id: String, branch: String, description: String,
-##   depots: Array[Dictionary]
-##     godot:  { preset: String, depot_id: String, output: String }
+##   uid: String (random, names the app's build folder),
+##   steam_enabled: bool, app_id: String, branch: String, description: String,
+##   itch_enabled: bool, itch_target: String ("user/game"),
+##   depots: Array[Dictionary]  (the build rows; one export or folder each)
+##     godot:  { preset: String, depot_id: String, output: String, itch_channel: String }
 ##             (output is the executable base name; the extension follows the preset platform)
-##     folder: { content_dir: String, depot_id: String }
+##     folder: { content_dir: String, depot_id: String, itch_channel: String }
 ##             (a plain folder uploaded as-is – no Godot export; kind is fixed at creation)
+##   A row goes to Steam when Steam is on, it is not a web build and it has a
+##   depot ID; to itch.io when itch.io is on and it has a channel.
 ## }
 var _projects: Array[Dictionary] = []
 var _selected_index: int = -1
@@ -282,10 +288,29 @@ var _secret_thread: Thread
 var _secrets_dirty := false
 ## Set while the last secret write failed, so the warning is logged once.
 var _secret_write_failed := false
+## SecretStore name → { "field": LineEdit, "remember": Button, "label": String }
+## for every remembered secret; filled in _ready.
+var _secrets: Dictionary = {}
+## Label of the progress bar the next run_process shows for tools whose
+## output does not say what they work on (butler: the channel it pushes).
+var _progress_label := ""
+## One banner per publish target after a run with more than one target
+## ({ "text", "color" }), in upload order.
+var _target_status: Array[Dictionary] = []
 
 ## Next steps logged when a failed run printed nothing KnownIssues recognises.
 const STEAMCMD_FALLBACK := "Scroll up to the first line from SteamCMD that says FAILED or ERROR for the reason. If it does not make sense, press the copy button in the console header and paste the result to an AI or on Discord."
 const EXPORT_FALLBACK := "Scroll up to Godot's first ERROR line for the reason. To see the full message, open the project in Godot and export the same preset from Project → Export…. If it still does not make sense, press the copy button in the console header and paste the result to an AI or on Discord."
+const BUTLER_FALLBACK := "Scroll up to butler's last lines for the reason. Check that the itch.io game (user/game) is yours and that the API key on the Setup page belongs to the same account. If it does not make sense, press the copy button in the console header and paste the result to an AI or on Discord."
+## Banner text per fallback, shown when a failure had no recognised cause.
+const FALLBACK_BANNERS := {
+	EXPORT_FALLBACK: "The export failed. See the console for Godot's error.",
+	STEAMCMD_FALLBACK: "SteamCMD failed. See the console for its error.",
+	BUTLER_FALLBACK: "The itch.io upload failed. See the console for butler's error.",
+}
+## Shown once a Web build went to itch.io: butler cannot mark a project as
+## playable in the browser, the game's edit page has to.
+const ITCH_HTML_NOTE := "Web builds play in the browser only after you set Kind of project to HTML on the itch.io edit page and tick 'This file will be played in the browser' on the html5 upload."
 ## No new byte for this long ends the SteamCMD download as stalled.
 const DOWNLOAD_STALL_MS := 30000
 ## Build & Publish warns (without blocking) below this much free disk space.
@@ -305,6 +330,7 @@ const PASSWORD_PROMPT := "password:"
 ## SecretStore names of the remembered secrets.
 const SECRET_PASSWORD := "steam_password"
 const SECRET_SHARED_SECRET := "steam_shared_secret"
+const SECRET_ITCH_KEY := "itch_api_key"
 ## Prompts SteamCMD prints (without a trailing newline) when it needs a code.
 const GUARD_PROMPTS := ["steam guard code:", "two-factor code:", "enter the current code"]
 ## Line SteamCMD prints while it waits for the login to be approved in the
@@ -341,6 +367,23 @@ var _steamcmd_http: HTTPRequest
 var _steamcmd_archive := ""
 var _steamcmd_downloading := false
 
+# butler downloader state.
+var _butler_http: HTTPRequest
+var _butler_archive := ""
+var _butler_downloading := false
+
+## Set once "Sign in" on the itch.io card accepted the API key. The account
+## is remembered so the sidebar chip shows it at once on the next start.
+var _itch_verified := false
+var _itch_user := ""  # itch.io username (the part before .itch.io)
+var _itch_display := ""  # display name, "" when the account has none
+var _itch_user_id := ""
+## Serials of the ItchApi requests whose answers are still wanted.
+var _itch_profile_serial := -1
+var _itch_games_serial := -1
+## Games of the signed-in account from the last fetch ({ title, target, … }).
+var _itch_games: Array = []
+
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = false  # Quitting mid-publish asks first.
@@ -364,6 +407,7 @@ func _ready() -> void:
 	%SteamCmdButton.button_group = _project_button_group
 	%SteamCmdButton.pressed.connect(_show_project.bind(-1))
 	%SteamAccountHeader.pressed.connect(_show_project.bind(-1))
+	%ItchAccountHeader.pressed.connect(_show_project.bind(-1))
 	%DiscordJoinButton.pressed.connect(_on_discord_join_pressed)
 	%DiscordWidget.widget_ready.connect(_on_discord_widget_ready)
 	%DiscordWidget.widget_failed.connect(_on_discord_widget_failed)
@@ -393,6 +437,23 @@ func _ready() -> void:
 	%SteamCmdDialog.file_selected.connect(_on_steamcmd_selected)
 	%DownloadSteamCmdButton.pressed.connect(_on_download_steamcmd_pressed)
 	%SteamCmdWebsiteButton.pressed.connect(func() -> void: OS.shell_open(STEAMCMD_DOCS_URL))
+	%DetectButlerButton.pressed.connect(_on_detect_butler_pressed)
+	%BrowseButlerButton.pressed.connect(func() -> void: %ButlerDialog.popup_centered())
+	%ButlerDialog.file_selected.connect(_on_butler_selected)
+	%DownloadButlerButton.pressed.connect(_on_download_butler_pressed)
+	%ButlerWebsiteButton.pressed.connect(func() -> void: OS.shell_open(ButlerTool.DOCS_URL))
+	%ItchSignInButton.pressed.connect(_on_itch_sign_in_pressed)
+	%ItchSignOutButton.pressed.connect(_on_itch_sign_out_pressed)
+	%ItchKeysPageButton.pressed.connect(func() -> void: OS.shell_open(ButlerTool.API_KEYS_URL))
+	%ItchApi.profile_ready.connect(_on_itch_profile_ready)
+	%ItchApi.profile_failed.connect(_on_itch_profile_failed)
+	%ItchApi.games_ready.connect(_on_itch_games_ready)
+	%ItchApi.games_failed.connect(_on_itch_games_failed)
+	%SteamTargetToggle.toggled.connect(_on_target_toggled.bind("steam"))
+	%ItchTargetToggle.toggled.connect(_on_target_toggled.bind("itch"))
+	%ItchPageButton.pressed.connect(_on_itch_page_pressed)
+	%PickItchGameButton.about_to_popup.connect(_on_pick_itch_game_opening)
+	%PickItchGameButton.get_popup().id_pressed.connect(_on_itch_game_picked)
 	%InstallationGeneralButton.pressed.connect(_on_installation_general_pressed)
 	%BuildsPageButton.pressed.connect(_on_builds_page_pressed)
 	%DepotsPageButton.pressed.connect(_on_depots_page_pressed)
@@ -422,6 +483,14 @@ func _ready() -> void:
 		_commit_field("branch", t)
 		_set_field_error(%Branch, false)
 	)
+	%ItchTarget.text_changed.connect(func(t: String) -> void:
+		_commit_field("itch_target", t.strip_edges())
+		_set_field_error(%ItchTarget, false)
+		_refresh_itch_page_link()
+	)
+	# A pasted game page address becomes user/game once the field is left.
+	%ItchTarget.focus_exited.connect(_normalize_itch_target)
+	%ItchTarget.text_submitted.connect(func(_t: String) -> void: _normalize_itch_target())
 	%BuildDescription.text_changed.connect(func(t: String) -> void: _commit_field("description", t))
 	# Plain Enter only leaves the field, so a stray Enter never starts an
 	# upload; Cmd/Ctrl+Enter publishes (here and in _shortcut_input).
@@ -472,15 +541,32 @@ func _ready() -> void:
 	_bind_secret_toggle(%TogglePasswordVisible, %SteamPassword, "password")
 	_bind_secret_toggle(%ToggleSecretVisible, %SteamSharedSecret, "shared secret")
 
-	_steamcmd_http = HTTPRequest.new()
-	_steamcmd_http.timeout = 0
-	_steamcmd_http.use_threads = true
-	_steamcmd_http.request_completed.connect(_on_steamcmd_download_completed)
-	add_child(_steamcmd_http)
+	%ButlerBinary.text_changed.connect(func(_t: String) -> void:
+		_save_settings()
+		_set_field_error(%ButlerBinary, false)
+		_refresh_setup_state()
+	)
+	%ItchApiKey.text_changed.connect(_on_itch_key_changed)
+	%ItchApiKey.focus_exited.connect(_persist_secrets)
+	%ItchApiKey.text_submitted.connect(func(_t: String) -> void: _on_itch_sign_in_pressed())
+	%RememberItchKey.toggled.connect(func(_on: bool) -> void:
+		_save_settings()
+		_persist_secrets()
+	)
+	_bind_secret_toggle(%ToggleItchKeyVisible, %ItchApiKey, "API key")
 
+	_steamcmd_http = _make_download_request(_on_steamcmd_download_completed)
+	_butler_http = _make_download_request(_on_butler_download_completed)
+
+	_secrets = {
+		SECRET_PASSWORD: {"field": %SteamPassword, "remember": %RememberPassword, "label": "password"},
+		SECRET_SHARED_SECRET: {"field": %SteamSharedSecret, "remember": %RememberSharedSecret, "label": "shared secret"},
+		SECRET_ITCH_KEY: {"field": %ItchApiKey, "remember": %RememberItchKey, "label": "itch.io API key"},
+	}
 	_apply_secret_store_state()
 	_load_settings()
 	_auto_detect_steamcmd()
+	_auto_detect_butler()
 	_drop_line = Panel.new()
 	_drop_line.theme_type_variation = &"Dot"
 	_drop_line.self_modulate = Color(COLOR_OK)
@@ -500,6 +586,9 @@ func _ready() -> void:
 	# Checkbox-style toggles whose "Remember" label is a separate node.
 	%RememberPassword.accessibility_name = "Remember password"
 	%RememberSharedSecret.accessibility_name = "Remember shared secret"
+	%RememberItchKey.accessibility_name = "Remember itch.io API key"
+	%SteamTargetToggle.accessibility_name = "Publish to Steam"
+	%ItchTargetToggle.accessibility_name = "Publish to itch.io"
 	%StatusBanner.get_node("BannerRow/DismissBannerButton").accessibility_name = "Dismiss message"
 	_name_unlabeled_controls(self)
 	log_line("%s ready." % _app_name(), COLOR_OK)
@@ -644,8 +733,7 @@ func _on_new_app_pressed() -> void:
 	if not _setup_complete():
 		# Never greyed out: pressing it explains what is missing instead.
 		_show_project(-1)
-		if _validate_login_fields():
-			log_line(_setup_hint(), COLOR_WARN)
+		log_line(_setup_hint(), COLOR_WARN)
 		return
 	# "+" beside Apps is not in the group; mirror it onto New. Plain assignment
 	# unpresses the group siblings, set_pressed_no_signal does not.
@@ -660,16 +748,16 @@ func _on_browse_pressed() -> void:
 	%ProjectDialog.popup_centered()
 
 
-## Removing forgets the app's App ID, branch and depot rows; nothing is deleted
-## on disk or on Steam.
+## Removing forgets the app's App ID, branch, itch.io game and build rows;
+## nothing is deleted on disk, on Steam or on itch.io.
 func _on_remove_project_pressed() -> void:
 	if _selected_index < 0:
 		return
 	var p := _projects[_selected_index]
-	if str(p.get("app_id", "")).is_empty() and (p["depots"] as Array).is_empty():
+	if str(p.get("app_id", "")).is_empty() and str(p.get("itch_target", "")).is_empty() and (p["depots"] as Array).is_empty():
 		_remove_project(p)  # Nothing set up yet, so nothing to lose.
 		return
-	_confirm("Remove %s?" % p["name"], "Its App ID, branch and depot settings are forgotten. Nothing is deleted on disk or on Steam.", "Remove", _remove_project.bind(p))
+	_confirm("Remove %s?" % p["name"], "Its App ID, itch.io game and build settings are forgotten. Nothing is deleted on disk, on Steam or on itch.io.", "Remove", _remove_project.bind(p))
 
 
 func _remove_project(p: Dictionary) -> void:
@@ -735,32 +823,27 @@ func _on_project_dir_selected(dir: String) -> void:
 		_finish_add_project()
 	elif is_godot:
 		var binary := await _guess_godot_binary(_read_required_godot_version(dir))
-		_projects.insert(0, {
-			"name": _read_project_name(dir),
-			"path": dir,
-			"kind": "godot",
-			"godot_binary": binary,
-			"app_id": "",
-			"branch": "",
-			"description": "",
-			"depots": [],
-		})
+		_projects.insert(0, _new_project(dir, "godot", binary))
 		_selected_index = 0
 		_finish_add_project(true)
 	else:
-		_projects.insert(0, {
-			"name": dir.get_file(),
-			"path": dir,
-			"kind": "folder",
-			"godot_binary": "",
-			"app_id": "",
-			"branch": "",
-			"description": "",
-			"depots": [],
-		})
+		_projects.insert(0, _new_project(dir, "folder", ""))
 		_selected_index = 0
 		log_line("No project.godot in %s — added '%s' as a content folder. Build and publish uploads the folder as-is, without a Godot export." % [dir, dir.get_file()], COLOR_INFO)
 		_finish_add_project(true)
+
+
+## A fresh app for [param dir]. Every target that is set up starts switched
+## on, so the usual case (one storefront) needs no toggling.
+func _new_project(dir: String, kind: String, binary: String) -> Dictionary:
+	return _sanitize_project({
+		"name": _read_project_name(dir) if kind == "godot" else dir.get_file(),
+		"path": dir,
+		"kind": kind,
+		"godot_binary": binary,
+		"steam_enabled": _steam_setup_complete(),
+		"itch_enabled": _itch_setup_complete(),
+	})
 
 
 ## Index of the app whose folder is [param dir], or -1.
@@ -972,7 +1055,7 @@ func _notification(what: int) -> void:
 		if _publishing.is_empty():
 			_quit()
 		else:
-			_confirm("Quit while publishing?", "The upload of %s stops and Steam keeps its previous build." % _publishing["name"], "Quit", _quit)
+			_confirm("Quit while publishing?", "The upload of %s stops and %s the previous build." % [_publishing["name"], _stores_keep_text(_publishing)], "Quit", _quit)
 
 
 ## App-wide shortcuts, Cmd on macOS and Ctrl elsewhere: Enter publishes the
@@ -1111,6 +1194,12 @@ func _stop_children_for_quit() -> void:
 		_steamcmd_downloading = false
 		if not _steamcmd_archive.is_empty():
 			DirAccess.remove_absolute(_steamcmd_archive)
+	if _butler_downloading and is_instance_valid(_butler_http):
+		_butler_http.cancel_request()
+		_butler_downloading = false
+		if not _butler_archive.is_empty():
+			DirAccess.remove_absolute(_butler_archive)
+	OS.unset_environment("BUTLER_API_KEY")  # Never outlives a launch; belt and braces.
 	_reader_stop = true
 	for t in _reader_threads:
 		if t.is_started():
@@ -1147,8 +1236,9 @@ func _refresh_sidebar_selection() -> void:
 			label.add_theme_color_override("font_color", Color(COLOR_TEXT) if child.button_pressed else Color(COLOR_TEXT_2))
 
 
-## Switch the main view to project [param index]; -1 shows the SteamCMD setup
-## page, which also carries the Discord community section.
+## Switch the main view to project [param index]; -1 shows the Setup page
+## (itch.io, SteamCMD and the accounts), which also carries the Discord
+## community section.
 func _show_project(index: int) -> void:
 	_selected_index = index
 	var has_project := index >= 0 and index < _projects.size()
@@ -1160,6 +1250,7 @@ func _show_project(index: int) -> void:
 	%ComposerBox.visible = has_project
 	_godot_status = {}
 	_run_status = {}
+	_target_status.clear()
 	_dismissed_banners.clear()
 	# The new page's banners appear at once; see _refresh_banners.
 	for child in %StatusStack.get_children():
@@ -1170,6 +1261,7 @@ func _show_project(index: int) -> void:
 	%SteamCmdButton.set_pressed_no_signal(not has_project)
 	%NewAppButton.set_pressed_no_signal(false)  # Any real selection ends the pending "New" state.
 	%SteamChevron.texture = ARROW_DOWN if not has_project else ARROW_RIGHT
+	%ItchChevron.texture = %SteamChevron.texture
 	_clear_project_errors()
 	_refresh_sidebar_selection()
 	_apply_build_lock()
@@ -1188,9 +1280,12 @@ func _show_project(index: int) -> void:
 	_refresh_installation_link()
 	%Branch.text = p.get("branch", "")
 	%BuildDescription.text = p.get("description", "")
+	%ItchTarget.text = p.get("itch_target", "")
+	_refresh_itch_page_link()
 
 	var folder := _is_folder_app(p)
 	%GodotSection.visible = not folder
+	_apply_targets(p)
 	_apply_depot_table_kind(folder)
 	if folder:
 		_preset_names = PackedStringArray()
@@ -1206,11 +1301,12 @@ func _show_project(index: int) -> void:
 			log_line("'%s' has no export presets. Open it in Godot → Project → Export… and add one, then reselect the project." % p["name"], COLOR_WARN)
 		_rebuild_depot_rows()
 		_check_godot_version()
-	_refresh_steam_header(false)
 
 	log_line("Selected app: %s" % p["name"], COLOR_INFO)
-	_suggest_app_id(p)
-	_maybe_auto_fetch_depots(_current_app_id())
+	if _steam_on(p):
+		_refresh_steam_header(false)
+		_suggest_app_id(p)
+		_maybe_auto_fetch_depots(_current_app_id())
 
 
 ## Rebuilds the banners above the build bar: one per thing the user should fix
@@ -1304,11 +1400,17 @@ func _status_messages() -> Array[Dictionary]:
 		all.append(_godot_status)
 	if not _run_status.is_empty():
 		all.append(_run_status)
+	all.append_array(_target_status)
+	if not _steam_on(p) and not _itch_on(p):
+		all.append({ "text": "Pick where this app publishes: switch on Steam, itch.io or both under Publish to.", "color": COLOR_WARN })
 	if not folder and not _has_presets():
 		all.append({ "text": "No export presets found. Open the project in Godot → Project → Export… and add a preset, then reselect the project.", "color": COLOR_WARN })
-	var dupes := _duplicate_depot_ids()
+	var dupes := _duplicate_depot_ids() if _steam_on(p) else PackedStringArray()
 	if not dupes.is_empty():
 		all.append({ "text": _duplicate_depot_message(dupes), "color": COLOR_WARN })
+	var channel_dupes := _duplicate_itch_channels(p) if _itch_on(p) else PackedStringArray()
+	if not channel_dupes.is_empty():
+		all.append({ "text": _duplicate_channel_message(channel_dupes), "color": COLOR_WARN })
 	if folder:
 		var missing := _missing_depot_folder(p)
 		if not missing.is_empty():
@@ -1391,6 +1493,7 @@ func _clear_project_errors() -> void:
 	_set_field_error(%GodotBinary, false)
 	_set_field_error(%AppId, false)
 	_set_field_error(%Branch, false)
+	_set_field_error(%ItchTarget, false)
 
 
 func _mark_depot_error(index: int, key: String) -> void:
@@ -1405,7 +1508,7 @@ func _clear_depot_error(index: int, key: String) -> void:
 
 
 ## Checks the Steam account fields both Sign in and Build & Publish need,
-## marks the failing ones red and shows the SteamCMD page so they are visible.
+## marks the failing ones red and shows the Setup page so they are visible.
 func _validate_login_fields() -> bool:
 	var ok := true
 	var username: String = %SteamUsername.text.strip_edges()
@@ -1429,8 +1532,29 @@ func _validate_login_fields() -> bool:
 	return ok
 
 
+## Checks what an itch.io upload needs on the Setup page: butler and a
+## signed-in API key. Marks the failing fields red and shows the page.
+func _validate_itch_setup() -> bool:
+	var ok := true
+	if _resolve_butler(%ButlerBinary.text).is_empty():
+		log_line("butler, itch.io's upload tool, is not set up. Press Download butler or Find on the Setup page.", COLOR_ERR)
+		_set_field_error(%ButlerBinary, true)
+		ok = false
+	if %ItchApiKey.text.strip_edges().is_empty():
+		log_line("Paste your itch.io API key on the Setup page (itch.io → Settings → API keys) and press Sign in.", COLOR_ERR)
+		_set_field_error(%ItchApiKey, true)
+		ok = false
+	elif not _itch_ok():
+		log_line("The itch.io API key is not checked yet. Press Sign in on the itch.io card of the Setup page.", COLOR_ERR)
+		_set_field_error(%ItchApiKey, true)
+		ok = false
+	if not ok and not %SetupPage.visible:
+		_show_project(-1)  # Put the red-marked fields on screen.
+	return ok
+
+
 ## Checks only that SteamCMD can be resolved, marks the field red and shows the
-## SteamCMD page when it cannot. Used by the Depots Fetch button, which can run anonymously.
+## Setup page when it cannot. Used by the Depots Fetch button, which can run anonymously.
 func _validate_steamcmd_field() -> bool:
 	var ok := true
 	if _resolve_steamcmd(%SteamCmdBinary.text).is_empty():
@@ -1442,44 +1566,49 @@ func _validate_steamcmd_field() -> bool:
 	return ok
 
 
-## Checks everything Build & Publish needs, marks every failing field red and
-## logs one line per problem. Duplicate depot IDs are marked but only warn.
+## Checks everything Build & Publish needs for the app's enabled targets,
+## marks every failing field red and logs one line per problem. Duplicate
+## depot IDs only warn.
 func _validate_publish_form() -> bool:
 	var p := _projects[_selected_index]
+	var steam := _steam_on(p)
+	var itch := _itch_on(p)
+	_depot_errors.clear()
+	var ok := _validate_common(p)
+	if not steam and not itch:
+		log_line("Switch on Steam, itch.io or both under Publish to, so the build has somewhere to go.", COLOR_ERR)
+		ok = false
+
+	var space_left := _free_disk_bytes()
+	if space_left >= 0 and space_left < LOW_DISK_BYTES:
+		log_line("Only %s of disk space is left in %s. Exports and uploads need room for a full copy of the game; free up space if the build fails." % [String.humanize_size(space_left), OS.get_user_data_dir()], COLOR_WARN)
+
+	# Last: a missing sign-in switches to the Setup page to show the fields.
+	if steam and not _validate_steam(p):
+		ok = false
+	if itch and not _validate_itch(p):
+		ok = false
+	_rebuild_depot_rows()
+	return ok
+
+
+## "Row 2 (Windows Desktop)" for build row [param i] in console messages.
+func _row_label(p: Dictionary, i: int) -> String:
+	var d: Dictionary = p["depots"][i]
+	var what := str(d.get("content_dir", "")).get_file() if _is_folder_app(p) else str(d.get("preset", ""))
+	return "Row %d%s" % [i + 1, " (%s)" % what if not what.is_empty() else ""]
+
+
+## Checks shared by every target: the project, the Godot binary and the build
+## rows' presets, executable names and folders.
+func _validate_common(p: Dictionary) -> bool:
 	var depots: Array = p["depots"]
 	var godot: String = p.get("godot_binary", "")
 	var folder := _is_folder_app(p)
 	var ok := true
-	_depot_errors.clear()
 
 	if not folder and not _project_file_exists(p):
 		log_line(_missing_project_message(p), COLOR_ERR)
-		ok = false
-
-	var app_id := str(p.get("app_id", "")).strip_edges()
-	if app_id.is_empty():
-		log_line("Steam App ID is required. It is the number in your app's Steamworks page address, e.g. partner.steamgames.com/apps/landing/480.", COLOR_ERR)
-		_set_field_error(%AppId, true)
-		ok = false
-	elif not _is_positive_int(app_id):
-		log_line("App ID '%s' is not a number. Use only the digits of the App ID shown in Steamworks." % app_id, COLOR_ERR)
-		_set_field_error(%AppId, true)
-		ok = false
-	else:
-		for other in _projects:
-			if not is_same(other, p) and str(other.get("app_id", "")).strip_edges() == app_id:
-				log_line("'%s' uses App %s too. A demo or playtest has its own App ID in Steamworks; check that this is the app you mean to upload to." % [other["name"], app_id], COLOR_WARN)
-				break
-
-	var branch := _branch_name(p)
-	if branch.to_lower() in ["default", "public"]:
-		# Steamworks calls the default branch "default", build scripts "public".
-		log_line("Steam doesn't let tools set builds live on the default branch ('default' in Steamworks, 'public' in build scripts); on a released game it refuses with 'Access Denied' after the whole upload. Leave 'Set live on branch' empty, upload, then set the build live in Steamworks → Builds.", COLOR_ERR)
-		_set_field_error(%Branch, true)
-		ok = false
-	elif " " in branch or "\"" in branch or "'" in branch:
-		log_line("Branch '%s' contains spaces or quotes. Type the branch name exactly as it is listed in Steamworks → SteamPipe → Builds (e.g. beta), or leave the field empty." % branch, COLOR_ERR)
-		_set_field_error(%Branch, true)
 		ok = false
 
 	if not folder:
@@ -1498,64 +1627,129 @@ func _validate_publish_form() -> bool:
 		elif _is_csharp_project(p["path"]) and not _is_dotnet_godot(godot):
 			log_line("This is a C# project, but %s is the standard Godot build. Pick the .NET build of Godot %s, or the scripts will be missing from the export." % [godot.get_file(), _read_required_godot_version(p["path"])], COLOR_WARN)
 	if depots.is_empty():
-		log_line("Add at least one depot row (the + button, or Fetch to read them from Steam).", COLOR_ERR)
+		log_line("Add at least one build row (the + button%s)." % (", or Fetch to read the depots from Steam" if _steam_on(p) else ""), COLOR_ERR)
 		ok = false
 	if not folder and _project_file_exists(p) and not _has_presets():
 		log_line("No export presets found in %s. Add one in Godot → Project → Export… first." % p["path"].path_join("export_presets.cfg"), COLOR_ERR)
 		ok = false
 
 	var row_incomplete := false
-	var keys: PackedStringArray = ["content_dir", "depot_id"] if folder else ["preset", "depot_id", "output"]
 	for i in depots.size():
 		var d: Dictionary = depots[i]
-		for key in keys:
-			if str(d.get(key, "")).strip_edges().is_empty():
-				_mark_depot_error(i, key)
-				row_incomplete = true
-		var depot_id := str(d.get("depot_id", "")).strip_edges()
-		if not depot_id.is_empty():
-			if not _is_positive_int(depot_id):
-				_mark_depot_error(i, "depot_id")
-				log_line("Depot ID '%s' is not a number. Copy the depot ID from Steamworks → SteamPipe → Depots." % depot_id, COLOR_ERR)
-				ok = false
-			elif depot_id == app_id:
-				_mark_depot_error(i, "depot_id")
-				log_line("Depot ID %s is the App ID. Depots have their own IDs, listed in Steamworks → SteamPipe → Depots (usually the App ID + 1, + 2, …)." % depot_id, COLOR_ERR)
-				ok = false
+		var row := _row_label(p, i)
 		if folder:
 			var content_dir := str(d.get("content_dir", "")).strip_edges()
 			if content_dir.is_empty():
-				pass
+				_mark_depot_error(i, "content_dir")
+				row_incomplete = true
 			elif not DirAccess.dir_exists_absolute(content_dir):
 				_mark_depot_error(i, "content_dir")
-				log_line("Depot %s: folder not found: %s. It was moved or deleted — pick it again with the folder button." % [depot_id, content_dir], COLOR_ERR)
+				log_line("Row %d: folder not found: %s. It was moved or deleted — pick it again with the folder button." % [i + 1, content_dir], COLOR_ERR)
 				ok = false
 			elif _dir_is_empty(content_dir):
 				_mark_depot_error(i, "content_dir")
-				log_line("Depot %s: %s is empty, so Steam would get nothing. Put the files to ship in it, or pick another folder." % [depot_id, content_dir], COLOR_ERR)
+				log_line("Row %d: %s is empty, so nothing would be uploaded. Put the files to ship in it, or pick another folder." % [i + 1, content_dir], COLOR_ERR)
 				ok = false
 			elif content_dir.rstrip("/") in ["", _home_dir().rstrip("/")]:
-				log_line("Depot %s uploads %s, your whole %s. Pick the folder that holds only the files to ship." % [depot_id, content_dir, "disk" if content_dir.rstrip("/").is_empty() else "home folder"], COLOR_WARN)
-		else:
-			var preset := str(d.get("preset", ""))
-			var preset_index := _preset_names.find(preset)
-			if not preset.is_empty() and _has_presets() and preset_index < 0:
+				log_line("Row %d uploads %s, your whole %s. Pick the folder that holds only the files to ship." % [i + 1, content_dir, "disk" if content_dir.rstrip("/").is_empty() else "home folder"], COLOR_WARN)
+			continue
+		var preset := str(d.get("preset", ""))
+		var preset_index := _preset_names.find(preset)
+		if preset.strip_edges().is_empty():
+			_mark_depot_error(i, "preset")
+			row_incomplete = true
+		elif _has_presets() and preset_index < 0:
+			_mark_depot_error(i, "preset")
+			log_line("%s: export preset '%s' no longer exists (renamed or deleted in Godot). Pick a preset in the row." % [row, preset], COLOR_ERR)
+			ok = false
+		var kind := _platform_kind(preset_index)
+		if kind == "web":
+			if not _itch_on(p) or str(d.get("itch_channel", "")).strip_edges().is_empty():
 				_mark_depot_error(i, "preset")
-				log_line("Depot %s: export preset '%s' no longer exists (renamed or deleted in Godot). Pick a preset in the depot row." % [depot_id, preset], COLOR_ERR)
+				log_line("%s is a web build. Steam cannot run web builds; publish it to itch.io (switch on itch.io and give the row a channel) or pick a desktop preset." % row, COLOR_ERR)
 				ok = false
-			elif _platform_kind(preset_index) == "web":
-				log_line("Depot %s uses the web preset '%s'. Steam cannot launch web builds; use a Windows, macOS or Linux preset." % [depot_id, preset], COLOR_WARN)
-			var output := str(d.get("output", ""))
-			var why := _invalid_file_name_reason(output)
-			if not output.strip_edges().is_empty() and not why.is_empty():
-				_mark_depot_error(i, "output")
-				log_line("Depot %s: executable name '%s' %s. Use letters, digits, '-' and '_'." % [depot_id, output, why], COLOR_ERR)
-				ok = false
+			elif _web_preset_uses_threads(p["path"], preset_index):
+				log_line("%s uses thread support, so on itch.io the game only starts with 'SharedArrayBuffer support' switched on (edit page → Embed options). Or turn off Thread Support in the Web preset." % row, COLOR_WARN)
+			continue  # Web exports are always index.html; there is no name to check.
+		var output := str(d.get("output", ""))
+		var why := _invalid_file_name_reason(output)
+		if output.strip_edges().is_empty():
+			_mark_depot_error(i, "output")
+			row_incomplete = true
+		elif not why.is_empty():
+			_mark_depot_error(i, "output")
+			log_line("%s: executable name '%s' %s. Use letters, digits, '-' and '_'." % [row, output, why], COLOR_ERR)
+			ok = false
 	if row_incomplete:
-		if folder:
-			log_line("Every depot row needs a folder and a depot ID.", COLOR_ERR)
-		else:
-			log_line("Every depot row needs a preset, a depot ID and an executable name.", COLOR_ERR)
+		log_line("Every row needs a folder." if folder else "Every row needs an export preset and an executable name.", COLOR_ERR)
+		ok = false
+	return ok
+
+
+## True when the Web preset at [param preset_index] of the project's
+## export_presets.cfg exports with thread support, which browsers only run
+## with cross-origin isolation (itch.io's SharedArrayBuffer option).
+static func _web_preset_uses_threads(project_path: String, preset_index: int) -> bool:
+	var cfg := ConfigFile.new()
+	if preset_index < 0 or cfg.load(project_path.path_join("export_presets.cfg")) != OK:
+		return false
+	return _as_bool(cfg.get_value("preset.%d.options" % preset_index, "variant/thread_support", false))
+
+
+## Steam's part of the check: App ID, branch, depot IDs and the SteamCMD login.
+func _validate_steam(p: Dictionary) -> bool:
+	var depots: Array = p["depots"]
+	var ok := true
+	var app_id := str(p.get("app_id", "")).strip_edges()
+	if app_id.is_empty():
+		log_line("Steam App ID is required. It is the number in your app's Steamworks page address, e.g. partner.steamgames.com/apps/landing/480.", COLOR_ERR)
+		_set_field_error(%AppId, true)
+		ok = false
+	elif not _is_positive_int(app_id):
+		log_line("App ID '%s' is not a number. Use only the digits of the App ID shown in Steamworks." % app_id, COLOR_ERR)
+		_set_field_error(%AppId, true)
+		ok = false
+	else:
+		for other in _projects:
+			if not is_same(other, p) and _steam_on(other) and str(other.get("app_id", "")).strip_edges() == app_id:
+				log_line("'%s' uses App %s too. A demo or playtest has its own App ID in Steamworks; check that this is the app you mean to upload to." % [other["name"], app_id], COLOR_WARN)
+				break
+
+	var branch := _branch_name(p)
+	if branch.to_lower() in ["default", "public"]:
+		# Steamworks calls the default branch "default", build scripts "public".
+		log_line("Steam doesn't let tools set builds live on the default branch ('default' in Steamworks, 'public' in build scripts); on a released game it refuses with 'Access Denied' after the whole upload. Leave 'Set live on branch' empty, upload, then set the build live in Steamworks → Builds.", COLOR_ERR)
+		_set_field_error(%Branch, true)
+		ok = false
+	elif " " in branch or "\"" in branch or "'" in branch:
+		log_line("Branch '%s' contains spaces or quotes. Type the branch name exactly as it is listed in Steamworks → SteamPipe → Builds (e.g. beta), or leave the field empty." % branch, COLOR_ERR)
+		_set_field_error(%Branch, true)
+		ok = false
+
+	var steam_rows := 0
+	var missing_id := false
+	for i in depots.size():
+		var d: Dictionary = depots[i]
+		if _row_kind(p, d) == "web":
+			continue
+		steam_rows += 1
+		var depot_id := str(d.get("depot_id", "")).strip_edges()
+		if depot_id.is_empty():
+			_mark_depot_error(i, "depot_id")
+			missing_id = true
+		elif not _is_positive_int(depot_id):
+			_mark_depot_error(i, "depot_id")
+			log_line("Depot ID '%s' is not a number. Copy the depot ID from Steamworks → SteamPipe → Depots." % depot_id, COLOR_ERR)
+			ok = false
+		elif depot_id == app_id:
+			_mark_depot_error(i, "depot_id")
+			log_line("Depot ID %s is the App ID. Depots have their own IDs, listed in Steamworks → SteamPipe → Depots (usually the App ID + 1, + 2, …)." % depot_id, COLOR_ERR)
+			ok = false
+	if missing_id:
+		log_line("Every row Steam gets needs a depot ID (Fetch reads them from Steam).", COLOR_ERR)
+		ok = false
+	if steam_rows == 0 and not depots.is_empty():
+		log_line("Steam gets nothing: every row is a web build. Add a Windows, macOS or Linux row, or switch Steam off for this app.", COLOR_ERR)
 		ok = false
 
 	var dupes := _duplicate_depot_ids()
@@ -1565,14 +1759,76 @@ func _validate_publish_form() -> bool:
 			if dupes.has(str(depots[i].get("depot_id", "")).strip_edges()):
 				_mark_depot_error(i, "depot_id")
 
-	var space_left := _free_disk_bytes()
-	if space_left >= 0 and space_left < LOW_DISK_BYTES:
-		log_line("Only %s of disk space is left in %s. Exports and SteamCMD need room for a full copy of the game; free up space if the build fails." % [String.humanize_size(space_left), OS.get_user_data_dir()], COLOR_WARN)
-
 	if not _validate_login_fields():
 		ok = false
-	_rebuild_depot_rows()
 	return ok
+
+
+## itch.io's part of the check: the game, the channels, butler and the key.
+func _validate_itch(p: Dictionary) -> bool:
+	var depots: Array = p["depots"]
+	var ok := true
+	var target := str(p.get("itch_target", "")).strip_edges()
+	if not ButlerTool.target_from_url(target).is_empty():
+		# A pasted game page address: use its user/game.
+		target = ButlerTool.target_from_url(target)
+		p["itch_target"] = target
+		if _is_selected(p):
+			%ItchTarget.text = target
+			_refresh_itch_page_link()
+		_save_projects()
+	if target.is_empty():
+		log_line("Enter the itch.io game as user/game (for https://you.itch.io/my-game that is you/my-game), or pick it from the list next to the field.", COLOR_ERR)
+		_set_field_error(%ItchTarget, true)
+		ok = false
+	elif not ButlerTool.is_valid_target(target):
+		log_line("'%s' is not an itch.io game in the form user/game. Use the part of the game page address around .itch.io: https://you.itch.io/my-game → you/my-game." % target, COLOR_ERR)
+		_set_field_error(%ItchTarget, true)
+		ok = false
+
+	var pushed := 0
+	for i in depots.size():
+		var channel := str(depots[i].get("itch_channel", "")).strip_edges()
+		if channel.is_empty():
+			continue
+		pushed += 1
+		if not ButlerTool.is_valid_channel(channel):
+			_mark_depot_error(i, "itch_channel")
+			log_line("Channel '%s' may only use lower-case letters, digits, '-', '_' and '.', e.g. windows or mac-beta." % channel, COLOR_ERR)
+			ok = false
+	if pushed == 0 and not depots.is_empty():
+		log_line("No row has an itch.io channel, so itch.io would get nothing. Type one in the Channel column (e.g. windows, mac, linux, html5).", COLOR_ERR)
+		ok = false
+	var dupes := _duplicate_itch_channels(p)
+	if not dupes.is_empty():
+		log_line(_duplicate_channel_message(dupes), COLOR_ERR)
+		for i in depots.size():
+			if dupes.has(str(depots[i].get("itch_channel", "")).strip_edges()):
+				_mark_depot_error(i, "itch_channel")
+		ok = false
+
+	if not _validate_itch_setup():
+		ok = false
+	return ok
+
+
+## Channels used by more than one row of [param p], ignoring blanks.
+func _duplicate_itch_channels(p: Dictionary) -> PackedStringArray:
+	var dupes := PackedStringArray()
+	var seen := {}
+	for d in p["depots"]:
+		var channel := str(d.get("itch_channel", "")).strip_edges()
+		if channel.is_empty():
+			continue
+		if seen.has(channel) and not dupes.has(channel):
+			dupes.append(channel)
+		seen[channel] = true
+	return dupes
+
+
+func _duplicate_channel_message(dupes: PackedStringArray) -> String:
+	var which := "Channel %s is" % dupes[0] if dupes.size() == 1 else "Channels %s are" % ", ".join(dupes)
+	return "%s used by several rows. Each push replaces the channel's build, so only the last row would stay on itch.io. Give every row its own channel." % which
 
 
 ## True for a string of digits with a value above zero (App and depot IDs).
@@ -1695,6 +1951,8 @@ func _update_header_shader_size() -> void:
 ## A typed App ID has settled (debounce): refresh the capsule and fill the
 ## depot table when it is still empty.
 func _on_app_id_settled() -> void:
+	if _selected_index < 0 or not _steam_on(_projects[_selected_index]):
+		return
 	_refresh_steam_header(false)
 	_maybe_auto_fetch_depots(_current_app_id())
 
@@ -2200,19 +2458,221 @@ func _missing_depot_folder(p: Dictionary) -> String:
 	return ""
 
 
-## Swaps the depot table's header, empty text and hints between the Godot
-## layout (preset / depot / executable) and the folder layout (folder / depot).
+## Swaps the build table's header, empty text and hints between the Godot
+## layout (preset / depot / channel / executable) and the folder layout
+## (folder / depot / channel). The depot and channel columns follow the
+## app's targets (see _apply_targets).
 func _apply_depot_table_kind(folder: bool) -> void:
 	%ColPresetRow.visible = not folder
 	%ColOutputRow.visible = not folder
 	%ColFolderRow.visible = folder
 	if folder:
-		%DepotsEmpty.text = "No depots yet. Add one row per content folder; Steam needs at least one."
-		%AddDepotButton.tooltip_text = "Add a depot (one per content folder)"
+		%DepotsEmpty.text = "No builds yet. Add one row per folder to upload."
+		%AddDepotButton.tooltip_text = "Add a row (one per folder)"
 	else:
-		%DepotsEmpty.text = "No depots yet. Add one row per export preset; Steam needs at least one."
-		%AddDepotButton.tooltip_text = "Add a depot (one per export preset)"
+		%DepotsEmpty.text = "No builds yet. Add one row per export preset."
+		%AddDepotButton.tooltip_text = "Add a row (one per export preset)"
 	_refresh_installation_link()
+
+
+# ---------------------------------------------------------------------------
+# Publish targets (Steam, itch.io)
+# ---------------------------------------------------------------------------
+
+## True when [param p] publishes to Steam. Apps from before itch.io support
+## have no flag and keep publishing to Steam.
+static func _steam_on(p: Dictionary) -> bool:
+	return p.get("steam_enabled", true) == true
+
+
+static func _itch_on(p: Dictionary) -> bool:
+	return p.get("itch_enabled", false) == true
+
+
+## "Steam", "itch.io" or "Steam and itch.io" for the targets of [param p].
+static func _targets_label(p: Dictionary) -> String:
+	var names := PackedStringArray()
+	if _steam_on(p):
+		names.append("Steam")
+	if _itch_on(p):
+		names.append("itch.io")
+	return " and ".join(names) if not names.is_empty() else "nowhere"
+
+
+## "Steam keeps" / "Steam and itch.io keep" for the stop and quit prompts.
+static func _stores_keep_text(p: Dictionary) -> String:
+	var both := _steam_on(p) and _itch_on(p)
+	return "%s %s" % [_targets_label(p), "keep" if both else "keeps"]
+
+
+## Platform family of build row [param d] of [param p] ("windows", "macos",
+## "linux", "web", or "" for folders and unknown presets).
+func _row_kind(p: Dictionary, d: Dictionary) -> String:
+	if _is_folder_app(p):
+		return ""
+	return _platform_kind(_preset_names.find(str(d.get("preset", ""))))
+
+
+## Shows the sections, table columns and composer hint for the targets of
+## [param p], and the state of the two Publish to toggles.
+func _apply_targets(p: Dictionary) -> void:
+	var steam := _steam_on(p)
+	var itch := _itch_on(p)
+	%SteamTargetToggle.set_pressed_no_signal(steam)
+	%ItchTargetToggle.set_pressed_no_signal(itch)
+	_refresh_target_toggles()
+	%SteamSection.visible = steam
+	%ItchSection.visible = itch
+	%FetchDepotsButton.visible = steam
+	%InstallationGeneralButton.visible = steam  # Steamworks launch option link
+	%ColDepotRow.visible = steam
+	%ColChannelRow.visible = itch
+	if steam:
+		%BuildDescription.placeholder_text = "Describe this build…"
+		%BuildDescription.tooltip_text = "Shown as the build description in Steamworks, e.g. v1.0.3 – fixed save bug. Cleared after a successful run."
+	else:
+		%BuildDescription.placeholder_text = "Version, e.g. 1.0.3 (optional)"
+		%BuildDescription.tooltip_text = "Sent to itch.io as the build's version. Leave empty to use the version from the project's settings (application/config/version), if it has one."
+
+
+## A target can only be switched on once it is set up on the Setup page; one
+## that is on stays switchable off, so an app never gets stuck.
+func _refresh_target_toggles() -> void:
+	for pair: Array in [
+		[%SteamTargetToggle, _steam_setup_complete(), "Steam", "Set up SteamCMD and sign in to Steam on the Setup page first"],
+		[%ItchTargetToggle, _itch_setup_complete(), "itch.io", "Set up butler and sign in to itch.io on the Setup page first"],
+	]:
+		var toggle: Button = pair[0]
+		var set_up: bool = pair[1]
+		var locked := not _publishing.is_empty() and _is_selected(_publishing)
+		toggle.disabled = locked or (not set_up and not toggle.button_pressed)
+		toggle.get_parent().tooltip_text = ("Publish this app to %s" % pair[2]) if set_up or toggle.button_pressed else pair[3]
+
+
+func _on_target_toggled(on: bool, target: String) -> void:
+	if _selected_index < 0:
+		return
+	var p := _projects[_selected_index]
+	p["%s_enabled" % target] = on
+	if on and target == "itch":
+		_fill_default_channels(p)
+	_save_projects()
+	_depot_errors.clear()
+	_apply_targets(p)
+	_rebuild_depot_rows()
+	_refresh_banners()
+	if on and target == "steam":
+		_refresh_steam_header(false)
+		_suggest_app_id(p)
+		_maybe_auto_fetch_depots(_current_app_id())
+	log_line("%s now publishes to %s." % [p["name"], _targets_label(p)], COLOR_INFO)
+
+
+## Gives every build row of [param p] without a channel the default one for
+## its platform, so switching itch.io on leaves a table that is ready to push.
+func _fill_default_channels(p: Dictionary) -> void:
+	var taken := PackedStringArray()
+	for d in p["depots"]:
+		var channel := str(d.get("itch_channel", "")).strip_edges()
+		if not channel.is_empty():
+			taken.append(channel)
+	for d in p["depots"]:
+		if not str(d.get("itch_channel", "")).strip_edges().is_empty():
+			continue
+		var channel := ButlerTool.default_channel(_row_kind(p, d), taken, _row_folder_name(p, d))
+		d["itch_channel"] = channel
+		taken.append(channel)
+
+
+## Folder name a folder row's default channel is made from.
+func _row_folder_name(p: Dictionary, d: Dictionary) -> String:
+	var dir := str(d.get("content_dir", "")).strip_edges()
+	return dir.get_file() if not dir.is_empty() else str(p["name"])
+
+
+func _refresh_itch_page_link() -> void:
+	var target: String = %ItchTarget.text.strip_edges()
+	var valid := ButlerTool.is_valid_target(target)
+	%ItchPageButton.disabled = not valid
+	%ItchPageButton.tooltip_text = "Open %s" % ButlerTool.page_url(target) if valid else "Enter the game as user/game first"
+
+
+func _on_itch_page_pressed() -> void:
+	var target: String = %ItchTarget.text.strip_edges()
+	if ButlerTool.is_valid_target(target):
+		OS.shell_open(ButlerTool.page_url(target))
+
+
+## Turns a pasted game page address into user/game.
+func _normalize_itch_target() -> void:
+	var text: String = %ItchTarget.text.strip_edges()
+	if not text.contains("itch.io"):
+		return
+	var target := ButlerTool.target_from_url(text)
+	if target.is_empty():
+		return
+	%ItchTarget.text = target
+	_commit_field("itch_target", target)
+	_refresh_itch_page_link()
+
+
+## The game list fills when it opens, from the account's games on itch.io.
+func _on_pick_itch_game_opening() -> void:
+	var popup: PopupMenu = %PickItchGameButton.get_popup()
+	_fill_itch_game_menu()
+	if not _itch_ok():
+		return
+	_itch_games_serial = %ItchApi.fetch_games(%ItchApiKey.text)
+	if _itch_games.is_empty():
+		popup.clear()
+		popup.add_item("Loading your games…")
+		popup.set_item_disabled(0, true)
+
+
+func _fill_itch_game_menu() -> void:
+	var popup: PopupMenu = %PickItchGameButton.get_popup()
+	popup.clear()
+	if not _itch_ok():
+		popup.add_item("Sign in to itch.io on the Setup page first")
+		popup.set_item_disabled(0, true)
+		return
+	if _itch_games.is_empty():
+		popup.add_item("No games on this account yet. Create one on itch.io first.")
+		popup.set_item_disabled(0, true)
+		return
+	for i in _itch_games.size():
+		var g: Dictionary = _itch_games[i]
+		popup.add_item("%s  (%s)%s" % [g["title"], g["target"], "" if g["published"] else " · draft"], i)
+
+
+func _on_itch_games_ready(serial: int, games: Array) -> void:
+	if serial != _itch_games_serial:
+		return
+	_itch_games = games
+	if %PickItchGameButton.get_popup().visible:
+		_fill_itch_game_menu()
+
+
+func _on_itch_games_failed(serial: int, reason: String) -> void:
+	if serial != _itch_games_serial:
+		return
+	log_line("Could not load your itch.io games (%s). Type the game as user/game instead." % reason, COLOR_WARN)
+	var popup: PopupMenu = %PickItchGameButton.get_popup()
+	if popup.visible:
+		popup.clear()
+		popup.add_item("Could not load your games")
+		popup.set_item_disabled(0, true)
+
+
+func _on_itch_game_picked(id: int) -> void:
+	if _selected_index < 0 or id < 0 or id >= _itch_games.size():
+		return
+	var target: String = _itch_games[id]["target"]
+	%ItchTarget.text = target
+	_commit_field("itch_target", target)
+	_set_field_error(%ItchTarget, false)
+	_refresh_itch_page_link()
+	log_line("%s publishes to %s on itch.io." % [_projects[_selected_index]["name"], ButlerTool.page_url(target)], COLOR_INFO)
 
 
 func _on_add_depot_pressed() -> void:
@@ -2243,7 +2703,7 @@ func _on_fetch_depots_pressed() -> void:
 ## Skips that the user can fix are logged; a project counts as fetched only
 ## after SteamCMD actually answered (see _fetch_depots).
 func _maybe_auto_fetch_depots(app_id: String) -> void:
-	if _selected_index < 0:
+	if _selected_index < 0 or not _steam_on(_projects[_selected_index]):
 		return
 	app_id = app_id.strip_edges()
 	if app_id.is_empty() or not _projects[_selected_index]["depots"].is_empty():
@@ -2279,7 +2739,7 @@ func _fetch_depots(auto: bool) -> void:
 	var anonymous: bool = %SteamUsername.text.strip_edges().is_empty()
 	if auto:
 		if _resolve_steamcmd(%SteamCmdBinary.text).is_empty():
-			log_line("SteamCMD not set, so the depots for App %s were not fetched. Set it on the SteamCMD page and reselect the app." % app_id, COLOR_WARN)
+			log_line("SteamCMD not set, so the depots for App %s were not fetched. Set it on the Setup page and reselect the app." % app_id, COLOR_WARN)
 			return
 	elif not _validate_steamcmd_field():
 		return
@@ -2449,6 +2909,8 @@ const DEPOT_ID_MIN_WIDTH := 64.0
 const DEPOT_ID_STRETCH := 1.0
 const OUTPUT_MIN_WIDTH := 88.0
 const OUTPUT_STRETCH := 1.3
+const CHANNEL_MIN_WIDTH := 64.0
+const CHANNEL_STRETCH := 1.0
 ## Folder apps show one folder column where Godot apps show preset + executable.
 const FOLDER_STRETCH := PRESET_STRETCH + OUTPUT_STRETCH
 ## Platform logos are 32px; shrink them to text height in the preset dropdown.
@@ -2510,7 +2972,11 @@ func _make_folder_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 	folder_box.add_child(browse)
 	row.add_child(folder_box)
 
-	row.add_child(_make_depot_id_field(index, depot, errors))
+	var p := _projects[_selected_index]
+	if _steam_on(p):
+		row.add_child(_make_depot_id_field(index, depot, errors))
+	if _itch_on(p):
+		row.add_child(_make_channel_field(index, depot, errors))
 	row.add_child(_make_depot_remove_button(index))
 	return row
 
@@ -2530,8 +2996,9 @@ func _on_depot_folder_selected(dir: String) -> void:
 	_rebuild_sidebar()
 
 
-## Depot ID column shared by both row kinds.
-func _make_depot_id_field(index: int, depot: Dictionary, errors: Dictionary) -> LineEdit:
+## Depot ID column shared by both row kinds. A web row never goes to Steam,
+## so its field stays empty and read-only.
+func _make_depot_id_field(index: int, depot: Dictionary, errors: Dictionary, web := false) -> LineEdit:
 	var depot_id := LineEdit.new()
 	depot_id.custom_minimum_size.x = DEPOT_ID_MIN_WIDTH
 	depot_id.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2540,6 +3007,13 @@ func _make_depot_id_field(index: int, depot: Dictionary, errors: Dictionary) -> 
 	depot_id.accessibility_name = "Depot %d ID" % (index + 1)
 	depot_id.text = str(depot.get("depot_id", ""))
 	_set_field_error(depot_id, errors.has("depot_id"))
+	if web:
+		depot_id.text = ""
+		depot_id.placeholder_text = "itch.io only"
+		depot_id.editable = false
+		depot_id.tooltip_text = "Steam cannot run web builds, so this row only goes to itch.io."
+		depot_id.set_meta("always_locked", true)
+		return depot_id
 	depot_id.text_changed.connect(func(t: String) -> void:
 		t = _digits_only(depot_id, t)
 		_clear_depot_error(index, "depot_id")
@@ -2551,13 +3025,40 @@ func _make_depot_id_field(index: int, depot: Dictionary, errors: Dictionary) -> 
 	return depot_id
 
 
+## itch.io channel column shared by both row kinds. Channels are lower-case
+## on itch.io, so typing is folded to lower case and spaces become "-".
+func _make_channel_field(index: int, depot: Dictionary, errors: Dictionary) -> LineEdit:
+	var channel := LineEdit.new()
+	channel.custom_minimum_size.x = CHANNEL_MIN_WIDTH
+	channel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	channel.size_flags_stretch_ratio = CHANNEL_STRETCH
+	channel.placeholder_text = "skipped"
+	channel.accessibility_name = "Row %d itch.io channel" % (index + 1)
+	channel.tooltip_text = "itch.io channel this row is pushed to. A name with windows, linux or mac gets that platform on itch.io; html5 is for web builds. Leave empty to skip this row on itch.io."
+	channel.text = str(depot.get("itch_channel", ""))
+	_set_field_error(channel, errors.has("itch_channel"))
+	channel.text_changed.connect(func(t: String) -> void:
+		var clean := t.to_lower().replace(" ", "-")
+		if clean != t:
+			var caret := channel.caret_column
+			channel.text = clean
+			channel.caret_column = mini(caret, clean.length())
+		_clear_depot_error(index, "itch_channel")
+		_set_field_error(channel, false)
+		_projects[_selected_index]["depots"][index]["itch_channel"] = clean
+		_save_projects()
+		_refresh_banners()
+	)
+	return channel
+
+
 func _make_depot_remove_button(index: int) -> Button:
 	var remove := Button.new()
 	remove.icon = ICON_CLOSE
 	remove.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	remove.theme_type_variation = &"IconButton"
-	remove.tooltip_text = "Remove depot"
-	remove.accessibility_name = "Remove depot %d" % (index + 1)
+	remove.tooltip_text = "Remove row"
+	remove.accessibility_name = "Remove row %d" % (index + 1)
 	remove.custom_minimum_size.x = 28
 	remove.pressed.connect(func() -> void:
 		_depot_errors.clear()
@@ -2618,18 +3119,27 @@ func _make_godot_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 	_set_field_error(preset, errors.has("preset"))
 	preset.item_selected.connect(func(idx: int) -> void:
 		_clear_depot_error(index, "preset")
-		var d: Dictionary = _projects[_selected_index]["depots"][index]
+		var app: Dictionary = _projects[_selected_index]
+		var d: Dictionary = app["depots"][index]
+		var old_kind := _row_kind(app, d)
 		d["preset"] = _preset_names[idx]
+		_follow_channel_default(app, d, old_kind)
 		_save_projects()
 		_rebuild_depot_rows()
+		_refresh_banners()
 	)
 	row.add_child(preset)
-	row.add_child(_make_depot_id_field(index, depot, errors))
+
+	var kind := _platform_kind(sel)
+	var p := _projects[_selected_index]
+	if _steam_on(p):
+		row.add_child(_make_depot_id_field(index, depot, errors, kind == "web"))
+	if _itch_on(p):
+		row.add_child(_make_channel_field(index, depot, errors))
 
 	# Executable column: editable base name with the platform extension drawn
 	# as ghost text right after it, inside the same field, so every row's
 	# field is the same width regardless of how long the extension is.
-	var kind := _platform_kind(sel)
 	var output := LineEdit.new()
 	output.custom_minimum_size.x = OUTPUT_MIN_WIDTH
 	output.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2637,9 +3147,16 @@ func _make_godot_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 	output.clip_contents = true
 	output.placeholder_text = _default_base_name()
 	output.accessibility_name = "Depot %d executable name" % (index + 1)
-	output.tooltip_text = "Name of the game executable. The extension is added for you from the preset's platform. Steam launches this file, so use the same full name in your Steamworks launch option."
+	output.tooltip_text = "Name of the game executable. The extension is added for you from the preset's platform. Steam launches this file, so use the same full name in your Steamworks launch option." if _steam_on(p) \
+		else "Name of the game executable. The extension is added for you from the preset's platform."
 	output.text = depot["output"]
 	_set_field_error(output, errors.has("output"))
+	if kind == "web":
+		# Browsers and itch.io start a web build from index.html.
+		output.text = "index"
+		output.editable = false
+		output.tooltip_text = "Web builds are always exported as index.html, the page itch.io opens in the browser."
+		output.set_meta("always_locked", true)
 
 	var ext := Label.new()
 	ext.text = _shown_extension(kind) if sel >= 0 else ""
@@ -2653,8 +3170,10 @@ func _make_godot_depot_row(index: int, depot: Dictionary) -> HBoxContainer:
 		"macos":
 			ext.tooltip_text = "Added from the preset's platform. Godot exports a zip; it is unpacked and the .app bundle inside is renamed to this name so it matches your Steamworks launch option."
 		"web":
-			ext.tooltip_text = "Added from the preset's platform. Steam cannot launch web builds — use a desktop preset for this depot."
-			ext.add_theme_color_override("font_color", Color(COLOR_WARN))
+			ext.tooltip_text = output.tooltip_text
+			if not _itch_on(p):
+				ext.tooltip_text = "Steam cannot launch web builds. Switch on itch.io for this app, or use a desktop preset for this row."
+				ext.add_theme_color_override("font_color", Color(COLOR_WARN))
 		_:
 			ext.tooltip_text = "Added from the preset's platform."
 	output.add_child(ext)
@@ -2724,16 +3243,27 @@ func _platform_kind(preset_index: int) -> String:
 	return ""
 
 
-## Extension Godot writes for [param kind]. macOS and Web export as a zip;
-## the macOS zip is unpacked after export so the .app bundle gets uploaded.
+## Extension Godot writes for [param kind]. macOS exports as a zip, which is
+## unpacked after export so the .app bundle gets uploaded; Web exports an
+## index.html with its .js, .wasm and .pck next to it.
 func _export_extension(kind: String) -> String:
 	match kind:
 		"windows":
 			return ".exe"
-		"macos", "web":
+		"macos":
 			return ".zip"
+		"web":
+			return ".html"
 		_:
 			return ".x86_64"
+
+
+## File a row of platform [param kind] with executable name [param output]
+## exports to. Web builds are always index.html.
+func _export_file_name(kind: String, output: String) -> String:
+	if kind == "web":
+		return "index.html"
+	return output.strip_edges() + _export_extension(kind)
 
 
 ## Extension shown in the depot table: what the player and Steam's launch
@@ -2755,14 +3285,37 @@ func _default_base_name() -> String:
 	return clean if not clean.is_empty() else "game"
 
 
-## New depot row for the selected project. Folder apps point the first depot
-## they create at the app folder itself; later ones start empty.
+## New build row for the selected project. Folder apps point the first row
+## they create at the app folder itself; later ones start empty. The row gets
+## the default itch.io channel for its platform (used once itch.io is on).
 func _new_depot_entry(preset: String, depot_id: String) -> Dictionary:
 	var p := _projects[_selected_index]
+	var taken := PackedStringArray()
+	for d in p["depots"]:
+		taken.append(str(d.get("itch_channel", "")).strip_edges())
+	var entry: Dictionary
 	if _is_folder_app(p):
 		var content_dir: String = p["path"] if p["depots"].is_empty() else ""
-		return {"content_dir": content_dir, "depot_id": depot_id}
-	return {"preset": preset, "depot_id": depot_id, "output": _default_base_name()}
+		entry = {"content_dir": content_dir, "depot_id": depot_id}
+	else:
+		entry = {"preset": preset, "depot_id": depot_id, "output": _default_base_name()}
+	entry["itch_channel"] = ButlerTool.default_channel(_row_kind(p, entry), taken, _row_folder_name(p, entry))
+	return entry
+
+
+## After the preset of row [param d] changed from platform [param old_kind]:
+## a channel that still is the default of the old platform follows the new
+## one ("windows" → "mac"); a channel the user typed is kept.
+func _follow_channel_default(p: Dictionary, d: Dictionary, old_kind: String) -> void:
+	var current := str(d.get("itch_channel", "")).strip_edges()
+	var taken := PackedStringArray()
+	for other in p["depots"]:
+		if not is_same(other, d):
+			taken.append(str(other.get("itch_channel", "")).strip_edges())
+	var old_default := ButlerTool.default_channel(old_kind, taken)
+	if not current.is_empty() and current != old_default:
+		return
+	d["itch_channel"] = ButlerTool.default_channel(_row_kind(p, d), taken)
 
 
 const KNOWN_EXPORT_EXTENSIONS: PackedStringArray = [".exe", ".x86_64", ".zip", ".app", ".html", ".pck"]
@@ -2786,167 +3339,188 @@ func _on_build_publish_pressed() -> void:
 		if _publishing.is_empty():
 			_cancel_running()  # Sign-in, depot reads and downloads stop at once.
 		else:
-			_confirm("Stop publishing?", "The upload of %s stops and Steam keeps its previous build." % _publishing["name"], "Stop", _cancel_running)
+			_confirm("Stop publishing?", "The upload of %s stops and %s the previous build." % [_publishing["name"], _stores_keep_text(_publishing)], "Stop", _cancel_running)
 		return
 	if _selected_index < 0:
 		return
 	if not _validate_publish_form():
 		return
 	var p := _projects[_selected_index]
-	var depots: Array = p["depots"]
-	var godot: String = p.get("godot_binary", "")
-	var folder := _is_folder_app(p)
-	var steamcmd := _resolve_steamcmd(%SteamCmdBinary.text)
 	# Read everything that belongs to the page on screen now: the user may look
 	# at another app while this one builds, which reloads _preset_names.
-	var file_names := PackedStringArray()
-	var kinds := PackedStringArray()
-	if not folder:
-		for d in depots:
-			var kind := _platform_kind(_preset_names.find(d["preset"]))
-			kinds.append(kind)
-			file_names.append(str(d["output"]).strip_edges() + _export_extension(kind))
+	var ctx := _make_publish_ctx(p)
 	# The description works like a chat box: it is sent with this build and the
 	# field clears right away. It is put back if the run fails or is cancelled.
-	var description: String = p["description"]
 	_set_description("")
-	if not _run_status.is_empty():
+	if not _run_status.is_empty() or not _target_status.is_empty():
 		_run_status = {}  # The last run's fix no longer applies to this one.
+		_target_status.clear()
 		_refresh_banners()
 
 	_set_busy(true)
 	_publishing = p
 	_exec_bits_lost = false
 	_apply_build_lock()
-	log_banner(("Publish %s (App %s)" if folder else "Build and publish %s (App %s)") % [p["name"], p["app_id"]])
+	var where := PackedStringArray()
+	if ctx["steam"]:
+		where.append("Steam (App %s)" % str(p["app_id"]).strip_edges())
+	if ctx["itch"]:
+		where.append("itch.io (%s)" % ctx["target"])
+	log_banner(("Publish %s to %s" if ctx["folder"] else "Build and publish %s to %s") % [p["name"], " and ".join(where)])
 
-	# 0) A depot ID the app does not own, or a SetLive branch that does not
-	# exist, only fails at the upload, after every export, with a vague Steam
-	# error. Ask Steam first.
-	var depot_check := await _check_depots_on_steam(p, steamcmd, description)
-	if depot_check == "stop":
+	# 0) A wrong depot ID, a missing branch, a bad API key or an unknown itch.io
+	# game only fail at the upload, after every export, with a vague error.
+	# Ask the stores first. A target that fails here is skipped; the others go on.
+	if ctx["steam"]:
+		var check := await _preflight_steam(ctx)
+		if check == "cancelled":
+			return
+		ctx["depot_check"] = check
+		ctx["steam"] = check != "failed"
+	if ctx["itch"]:
+		var check := await _preflight_itch(ctx)
+		if check == "cancelled":
+			return
+		ctx["itch"] = check != "failed"
+	if not ctx["steam"] and not ctx["itch"]:
+		_finish_publish(ctx)
 		return
 
-	var build_dir := OS.get_user_data_dir().path_join("builds").path_join(p["app_id"])
+	# 1) One export per row that a remaining target needs.
+	if not await _export_rows(ctx):
+		return
+
+	# 2) Upload to each target in turn.
+	if ctx["steam"] and not await _publish_steam(ctx):
+		return
+	if ctx["itch"] and not await _publish_itch(ctx):
+		return
+	_finish_publish(ctx)
+
+
+## Everything a Build & Publish run of [param p] needs, read up front:
+## { p, description, folder, steam, itch, steamcmd, butler, target,
+## userversion, build_dir, depot_check, rows, results }. Each row is
+## { index, label, preset, kind, file, dir, depot_id, channel, steam, itch }:
+## [code]dir[/code] is the folder that gets uploaded (the export folder, or a
+## folder app's own folder) and [code]steam[/code] / [code]itch[/code] say
+## which targets take it.
+func _make_publish_ctx(p: Dictionary) -> Dictionary:
+	var folder := _is_folder_app(p)
+	var build_dir := OS.get_user_data_dir().path_join("builds").path_join(str(p["uid"]))
 	var content_root := build_dir.path_join("content")
-	if not folder and not _remove_dir_recursive(content_root):
-		log_line("Could not delete the previous build in %s, so a file in it is still in use. Close any copy of the game started from that folder (and any window showing it), then build again." % content_root, COLOR_ERR)
-		_fail_publish(p, description)
-		return
-	if not _make_dir(build_dir.path_join("output")) or not _make_dir(content_root):
-		_fail_publish(p, description)
-		return
-
-	# A project that was never opened in Godot has no imported assets yet, and
-	# a headless export of it can miss resources. Import once first.
-	if not folder and not DirAccess.dir_exists_absolute(str(p["path"]).path_join(".godot")):
-		if _supports_import_flag(_read_required_godot_version(p["path"])):
-			log_step("Importing the project's assets (first export of this project)")
-			var import_code := await run_process(godot, PackedStringArray(["--headless", "--path", p["path"], "--import"]), KnownIssues.GODOT)
-			if _bail_if_cancelled():
-				_restore_description(p, description)
-				return
-			if import_code != 0:
-				log_line("Godot reported problems while importing; the export below shows whether they matter.", COLOR_WARN)
-			log_step_done(import_code == 0, "" if import_code == 0 else "continuing with the export")
-		else:
-			log_line("This project has never been opened in Godot, so its assets are not imported yet. If the export fails, open it once in the Godot editor and build again.", COLOR_WARN)
-
-	# 1) Folder apps upload their folders as-is; Godot apps export one preset per depot.
+	var rows: Array[Dictionary] = []
+	var depots: Array = p["depots"]
 	for i in depots.size():
 		var d: Dictionary = depots[i]
-		if folder:
-			log_step("Depot %s ← %s" % [d["depot_id"], d["content_dir"]])
-			log_step_done(true)
-			continue
-		var depot_dir := content_root.path_join(str(d["depot_id"]).strip_edges())
-		if not _make_dir(depot_dir):
-			_fail_publish(p, description)
-			return
-		var out_path := depot_dir.path_join(file_names[i])
-		log_step("Exporting '%s' as %s → depot %s" % [d["preset"], out_path.get_file(), d["depot_id"]])
+		var kind := _row_kind(p, d)
+		var channel := str(d.get("itch_channel", "")).strip_edges()
+		rows.append({
+			"index": i,
+			"label": _row_label(p, i),
+			"preset": str(d.get("preset", "")),
+			"kind": kind,
+			"output": str(d.get("output", "")).strip_edges(),
+			"file": "" if folder else _export_file_name(kind, str(d.get("output", ""))),
+			"dir": str(d.get("content_dir", "")).strip_edges() if folder else content_root.path_join("%d-%s" % [i + 1, kind if not kind.is_empty() else "build"]),
+			"depot_id": str(d.get("depot_id", "")).strip_edges(),
+			"channel": channel,
+			"steam": _steam_on(p) and kind != "web",
+			"itch": _itch_on(p) and not channel.is_empty(),
+		})
+	var description: String = p["description"]
+	# Without Steam the composer field is the version itch.io shows.
+	var userversion := "" if _steam_on(p) else description.strip_edges()
+	if userversion.is_empty() and not folder:
+		userversion = _read_project_version(p["path"])
+	return {
+		"p": p,
+		"description": description,
+		"folder": folder,
+		"steam": _steam_on(p),
+		"itch": _itch_on(p),
+		"steamcmd": _resolve_steamcmd(%SteamCmdBinary.text) if _steam_on(p) else "",
+		"butler": _resolve_butler(%ButlerBinary.text) if _itch_on(p) else "",
+		"target": str(p.get("itch_target", "")).strip_edges(),
+		"userversion": userversion,
+		"build_dir": build_dir,
+		"depot_check": "",
+		"rows": rows,
+		"results": [],
+	}
 
-		var code := await run_process(godot, [
-			"--headless",
-			"--path", p["path"],
-			"--export-release", d["preset"],
-			out_path,
-		], KnownIssues.GODOT)
-		if _bail_if_cancelled():
-			_restore_description(p, description)
-			return
-		if code != 0 or not FileAccess.file_exists(out_path):
-			var why := "" if code != 0 else " (Godot finished without writing %s)" % out_path.get_file()
-			log_line("Export of '%s' failed%s." % [d["preset"], why], COLOR_ERR)
-			_explain_known_issues(EXPORT_FALLBACK, _is_selected(p))
-			_fail_publish(p, description, "export failed")
-			return
 
-		# macOS exports are zipped .app bundles – unpack so Steam ships the bundle itself.
-		if out_path.ends_with(".zip"):
-			var ok := await _unzip_in_place(out_path, depot_dir)
-			if _bail_if_cancelled():
-				_restore_description(p, description)
-				return
-			if not ok:
-				_fail_publish(p, description, "unpack failed")
-				return
-			# Godot names the bundle inside the zip after the project name, not
-			# the zip file. Rename it so it matches the executable in the table.
-			if kinds[i] == "macos":
-				_rename_app_bundle(depot_dir, d["output"])
-		log_step_done(true, "may not launch" if _exec_bits_lost and kinds[i] == "macos" else "")
+## application/config/version from the project's project.godot, or "".
+func _read_project_version(project_path: String) -> String:
+	var cfg := ConfigFile.new()
+	if cfg.load(project_path.path_join("project.godot")) != OK:
+		return ""
+	return _as_str(cfg.get_value("application", "config/version", "")).strip_edges()
 
-	# 2) Write the SteamCMD build script.
-	var vdf_path := build_dir.path_join("app_build.vdf")
-	if not _write_app_build_vdf(vdf_path, p, build_dir, description):
-		_fail_publish(p, description)
-		return
-	log_line("Wrote %s" % vdf_path, COLOR_INFO)
 
-	# 3) Upload with SteamCMD.
-	log_step("Uploading to Steam")
-	var steam_args := _steam_login_args()
-	steam_args.append_array(["+run_app_build", vdf_path, "+quit"])
-	var typed_code: bool = not %SteamGuardCode.text.strip_edges().is_empty()
-	var upload_code := await run_process(steamcmd, steam_args)
-	if _bail_if_cancelled():
-		_restore_description(p, description)
-		return
-	if upload_code != 0:
-		log_line("SteamCMD upload failed (exit code %d)." % upload_code, COLOR_ERR)
-		if depot_check == "confirmed" and _seen_issues.has("build_access_denied"):
-			log_line("Steam lists every depot in the table for App %s, so the depot IDs are right; the account's Steamworks permissions are the likely cause." % p["app_id"], COLOR_INFO)
-		var guard_explained := _explain_guard_failure(typed_code)
-		_explain_known_issues("" if guard_explained else STEAMCMD_FALLBACK, _is_selected(p))
-		_restore_description(p, description)
-	elif _branch_name(p).is_empty():
-		_mark_login_verified()
-		log_line("Upload complete. Set the build live in Steamworks → Builds; for a released app the default branch needs confirmation in the Steam Mobile app. A beta branch has to exist in Steamworks first; then the branch field sets builds live on it.", COLOR_OK)
-		_set_run_status(p, "Uploaded. Set the build live in Steamworks → Builds.", COLOR_OK)
-	else:
-		_mark_login_verified()
-		log_line("Upload complete and set live on branch '%s'." % _branch_name(p), COLOR_OK)
-		_set_run_status(p, "Uploaded and set live on branch '%s'." % _branch_name(p), COLOR_OK)
-	if upload_code == 0 and _exec_bits_lost:
-		_set_run_status(p, "Uploaded, but the macOS build may not launch: it lost its executable bits. Build macOS depots on a Mac.", COLOR_WARN)
-	log_step_done(upload_code == 0)
+## Records how [param target] ("Steam" or "itch.io") ended in this run. A
+## failure's text is the leading fix _explain_known_issues just put in the
+## banner, when it found one.
+func _add_result(ctx: Dictionary, target: String, ok: bool, text: String, color := "") -> void:
+	if not ok and not _run_status.is_empty():
+		text = _run_status["text"]
+	_run_status = {}
+	(ctx["results"] as Array).append({"target": target, "ok": ok, "text": text, "color": color if not color.is_empty() else (COLOR_OK if ok else COLOR_ERR)})
+
+
+## After an await: true when the user pressed stop meanwhile. Ends the run
+## like _bail_if_cancelled and gives the app its description back.
+func _publish_cancelled(ctx: Dictionary) -> bool:
+	if not _bail_if_cancelled():
+		return false
+	_restore_description(ctx["p"], ctx["description"])
+	return true
+
+
+## End of a run that got through its targets (or had none left): one banner
+## per target, or the single target's result as the banner. The description
+## goes back when Steam, which shows it, did not get the build, or when no
+## target got it.
+func _finish_publish(ctx: Dictionary) -> void:
+	var p: Dictionary = ctx["p"]
+	var results: Array = ctx["results"]
+	var any_ok := false
+	var steam_failed := false
+	for r: Dictionary in results:
+		any_ok = any_ok or r["ok"]
+		if r["target"] == "Steam" and not r["ok"]:
+			steam_failed = true
+	if steam_failed or not any_ok:
+		_restore_description(p, ctx["description"])
+	if _is_selected(p):
+		_run_status = {}
+		_target_status.clear()
+		if results.size() == 1:
+			_run_status = {"text": results[0]["text"], "color": results[0]["color"]}
+		else:
+			for r: Dictionary in results:
+				_target_status.append({"text": "%s: %s" % [r["target"], r["text"]], "color": r["color"]})
+		_refresh_banners()
 	_set_busy(false)
 
 
-## Build & Publish step 0: checks every depot ID of [param p] against the
-## depot list Steam has for its App ID, and its "Set live on branch" against
-## the app's branches, from _steam_depot_ids / _steam_branches when those
-## already cover them, otherwise with one SteamCMD run under the same login
-## the upload uses. Returns "confirmed" when Steam lists them all, "unknown"
-## when the depot list could not be read (the build goes on), or "stop" when
-## the run ended here (wrong IDs, missing branch, failed SteamCMD or cancel)
-## and is already cleaned up.
-func _check_depots_on_steam(p: Dictionary, steamcmd: String, description: String) -> String:
+## Build & Publish step 0 for Steam: checks every depot ID the Steam rows use
+## against the depot list Steam has for the App ID, and "Set live on branch"
+## against the app's branches, from _steam_depot_ids / _steam_branches when
+## those already cover them, otherwise with one SteamCMD run under the same
+## login the upload uses. Returns "confirmed" when Steam lists them all,
+## "unknown" when the depot list could not be read (the build goes on),
+## "failed" when Steam cannot get this build (wrong IDs, missing branch,
+## failed SteamCMD; the reason is logged and recorded) or "cancelled" when the
+## user stopped the run, which is then already cleaned up.
+func _preflight_steam(ctx: Dictionary) -> String:
+	var p: Dictionary = ctx["p"]
+	var steamcmd: String = ctx["steamcmd"]
 	var app_id := str(p["app_id"]).strip_edges()
 	var wanted := PackedStringArray()
-	for d in p["depots"]:
-		wanted.append(str(int(str(d.get("depot_id", "")).strip_edges())))
+	for row: Dictionary in ctx["rows"]:
+		if row["steam"]:
+			wanted.append(str(int(row["depot_id"])))
 	var cached: PackedStringArray = _steam_depot_ids.get(app_id, PackedStringArray())
 	var branch := _branch_name(p).to_lower()
 	# A branch the cache does not list, or lists without a live build, may
@@ -2962,16 +3536,16 @@ func _check_depots_on_steam(p: Dictionary, steamcmd: String, description: String
 	# Printed twice: on a cold cache the first print is often a stub (see _fetch_depots).
 	args.append_array(["+app_info_update", "1", "+app_info_print", app_id, "+app_info_print", app_id, "+quit"])
 	var res := await _query_depots(steamcmd, args, app_id)
-	if _bail_if_cancelled():
-		_restore_description(p, description)
-		return "stop"
+	if _publish_cancelled(ctx):
+		return "cancelled"
 	if res["code"] != 0:
 		# Same login as the upload, so the upload would fail too: stop before exporting.
-		log_line("SteamCMD failed (exit code %d) before anything was exported." % res["code"], COLOR_ERR)
+		log_line("SteamCMD failed (exit code %d) before anything was exported for Steam." % res["code"], COLOR_ERR)
 		var guard_explained := _explain_guard_failure(typed_code)
 		_explain_known_issues("" if guard_explained else STEAMCMD_FALLBACK, _is_selected(p))
-		_fail_publish(p, description, "SteamCMD failed")
-		return "stop"
+		_add_result(ctx, "Steam", false, "SteamCMD failed before the export. See the console for its error.")
+		log_step_done(false, "SteamCMD failed")
+		return "failed"
 	_mark_login_verified()
 	if typed_code:
 		%SteamGuardCode.text = ""  # Used up; the upload signs in with the cached session.
@@ -2981,14 +3555,17 @@ func _check_depots_on_steam(p: Dictionary, steamcmd: String, description: String
 		log_line("Steam did not show the depot list of App %s (unreleased apps only show it to an account with Steamworks access to the app), so the depot IDs are not checked. Building anyway." % app_id, COLOR_WARN)
 	var missing := PackedStringArray() if listed.is_empty() else _ids_not_listed(wanted, listed)
 	if missing.is_empty():
-		if _stop_for_missing_branch(p, res["branches"], description):
-			return "stop"
+		var branch_problem := _missing_branch_message(p, res["branches"])
+		if not branch_problem.is_empty():
+			_add_result(ctx, "Steam", false, branch_problem)
+			log_step_done(false, "no such branch")
+			return "failed"
 		log_step_done(true, "not checked" if listed.is_empty() else "")
 		return "unknown" if listed.is_empty() else "confirmed"
 
 	var shown := listed.slice(0, 12)
 	var steam_list := ", ".join(shown) + (", …" if listed.size() > shown.size() else "")
-	var msg := "%s %s not %s of App %s. Steam lists: %s. Fix the ID%s in the depot table, or press Fetch to read them from Steam. A depot just added in Steamworks only counts once the change is published (SteamPipe → Depots, then Publish)." % [
+	var msg := "%s %s not %s of App %s. Steam lists: %s. Fix the ID%s in the build table, or press Fetch to read them from Steam. A depot just added in Steamworks only counts once the change is published (SteamPipe → Depots, then Publish)." % [
 		"Depot" if missing.size() == 1 else "Depots",
 		", ".join(missing),
 		"is a depot" if missing.size() == 1 else "are depots",
@@ -2998,31 +3575,30 @@ func _check_depots_on_steam(p: Dictionary, steamcmd: String, description: String
 	]
 	log_line(msg, COLOR_ERR)
 	if _is_selected(p):
-		var depots: Array = p["depots"]
-		for i in depots.size():
-			if missing.has(wanted[i]):
-				_mark_depot_error(i, "depot_id")
+		for row: Dictionary in ctx["rows"]:
+			if row["steam"] and missing.has(str(int(row["depot_id"]))):
+				_mark_depot_error(row["index"], "depot_id")
 		_rebuild_depot_rows()
-		_run_status = { "text": msg, "color": COLOR_ERR }
-		_refresh_banners()
-	_fail_publish(p, description, "wrong depot IDs")
-	return "stop"
+	_add_result(ctx, "Steam", false, msg)
+	log_step_done(false, "wrong depot IDs")
+	return "failed"
 
 
-## Part of step 0: when [param p] sets a build live on a branch Steam does not
-## list, logs how to create it, ends the run and returns true. SteamCMD cannot
-## create branches, and SetLive on a missing one only fails after the upload.
-## [param builds] is Steam's branch name → live buildid for the app
-## (SteamAppInfo.branch_builds); a listed branch with no build only warns. An
-## empty [param builds] means Steam did not show the branches: nothing is checked.
-func _stop_for_missing_branch(p: Dictionary, builds: Dictionary, description: String) -> bool:
+## Part of Steam's step 0: when [param p] sets a build live on a branch Steam
+## does not list, logs how to create it and returns that message ("" when the
+## branch is fine). SteamCMD cannot create branches, and SetLive on a missing
+## one only fails after the upload. [param builds] is Steam's branch name →
+## live buildid for the app (SteamAppInfo.branch_builds); a listed branch with
+## no build only warns. An empty [param builds] means Steam did not show the
+## branches: nothing is checked.
+func _missing_branch_message(p: Dictionary, builds: Dictionary) -> String:
 	var branch := _branch_name(p)
 	if branch.is_empty() or builds.is_empty():
-		return false
+		return ""
 	if builds.has(branch.to_lower()):
 		if not _branch_has_build(builds, branch.to_lower()):
 			log_line("Branch '%s' has no build live yet. If Steam refuses to set this build live on it, set it live by hand in Steamworks → SteamPipe → Builds; later builds from here can then go live on it." % branch, COLOR_WARN)
-		return false
+		return ""
 	var names := PackedStringArray(builds.keys())
 	names.sort()
 	var msg := "App %s has no branch '%s' (Steam lists: %s). SteamCMD cannot create branches: check the spelling, or create it in Steamworks → SteamPipe → Builds (the Builds page button), then build again. Or clear 'Set live on branch' to upload without setting the build live." % [
@@ -3033,10 +3609,205 @@ func _stop_for_missing_branch(p: Dictionary, builds: Dictionary, description: St
 	log_line(msg, COLOR_ERR)
 	if _is_selected(p):
 		_set_field_error(%Branch, true)
-		_run_status = { "text": msg, "color": COLOR_ERR }
-		_refresh_banners()
-	_fail_publish(p, description, "no such branch")
+	return msg
+
+
+## Build & Publish step 0 for itch.io: asks butler for the game's channels,
+## which proves the API key works and the game exists before anything is
+## exported. Returns "ok", "failed" (logged and recorded) or "cancelled".
+func _preflight_itch(ctx: Dictionary) -> String:
+	var p: Dictionary = ctx["p"]
+	log_step("Checking %s on itch.io" % ctx["target"])
+	var code := await run_process(ctx["butler"], PackedStringArray(["status", ctx["target"], "--json"]), KnownIssues.BUTLER, false, _butler_env())
+	if _publish_cancelled(ctx):
+		return "cancelled"
+	if code != 0:
+		log_line("butler could not read %s on itch.io (exit code %d), so nothing is built for itch.io." % [ctx["target"], code], COLOR_ERR)
+		_explain_known_issues(BUTLER_FALLBACK, _is_selected(p))
+		_add_result(ctx, "itch.io", false, "butler could not reach the game on itch.io. See the console for its error.")
+		log_step_done(false, "itch.io check failed")
+		return "failed"
+	log_step_done(true)
+	return "ok"
+
+
+## Environment butler runs with: the API key, so it never appears on the
+## command line (see run_process).
+func _butler_env() -> Dictionary:
+	return {"BUTLER_API_KEY": %ItchApiKey.text.strip_edges()}
+
+
+## Build & Publish step 1: exports every row a remaining target takes into
+## its own folder. Folder apps upload their folders as-is. Returns false when
+## the run ended here (failed export or cancel), already cleaned up.
+func _export_rows(ctx: Dictionary) -> bool:
+	var p: Dictionary = ctx["p"]
+	var description: String = ctx["description"]
+	var build_dir: String = ctx["build_dir"]
+	var content_root := build_dir.path_join("content")
+	var folder: bool = ctx["folder"]
+	if not folder and not _remove_dir_recursive(content_root):
+		log_line("Could not delete the previous build in %s, so a file in it is still in use. Close any copy of the game started from that folder (and any window showing it), then build again." % content_root, COLOR_ERR)
+		_fail_publish(p, description)
+		return false
+	if not _make_dir(build_dir.path_join("output")) or not _make_dir(content_root):
+		_fail_publish(p, description)
+		return false
+
+	# A project that was never opened in Godot has no imported assets yet, and
+	# a headless export of it can miss resources. Import once first.
+	var godot: String = p.get("godot_binary", "")
+	if not folder and not DirAccess.dir_exists_absolute(str(p["path"]).path_join(".godot")):
+		if _supports_import_flag(_read_required_godot_version(p["path"])):
+			log_step("Importing the project's assets (first export of this project)")
+			var import_code := await run_process(godot, PackedStringArray(["--headless", "--path", p["path"], "--import"]), KnownIssues.GODOT)
+			if _publish_cancelled(ctx):
+				return false
+			if import_code != 0:
+				log_line("Godot reported problems while importing; the export below shows whether they matter.", COLOR_WARN)
+			log_step_done(import_code == 0, "" if import_code == 0 else "continuing with the export")
+		else:
+			log_line("This project has never been opened in Godot, so its assets are not imported yet. If the export fails, open it once in the Godot editor and build again.", COLOR_WARN)
+
+	for row: Dictionary in ctx["rows"]:
+		var goes_to := PackedStringArray()
+		if row["steam"] and ctx["steam"]:
+			goes_to.append("depot %s" % row["depot_id"])
+		if row["itch"] and ctx["itch"]:
+			goes_to.append("itch.io %s" % row["channel"])
+		if goes_to.is_empty():
+			if (row["steam"] and _steam_on(p)) or (row["itch"] and _itch_on(p)):
+				log_line("Skipped %s: its store was already ruled out above." % row["label"], COLOR_INFO)
+			continue
+		if folder:
+			log_step("%s ← %s" % [" and ".join(goes_to), row["dir"]])
+			log_step_done(true)
+			continue
+		var row_dir: String = row["dir"]
+		if not _make_dir(row_dir):
+			_fail_publish(p, description)
+			return false
+		var out_path := row_dir.path_join(row["file"])
+		log_step("Exporting '%s' as %s → %s" % [row["preset"], out_path.get_file(), " and ".join(goes_to)])
+
+		var code := await run_process(godot, [
+			"--headless",
+			"--path", p["path"],
+			"--export-release", row["preset"],
+			out_path,
+		], KnownIssues.GODOT)
+		if _publish_cancelled(ctx):
+			return false
+		if code != 0 or not FileAccess.file_exists(out_path):
+			var why := "" if code != 0 else " (Godot finished without writing %s)" % out_path.get_file()
+			log_line("Export of '%s' failed%s." % [row["preset"], why], COLOR_ERR)
+			_explain_known_issues(EXPORT_FALLBACK, _is_selected(p))
+			_fail_publish(p, description, "export failed")
+			return false
+
+		# macOS exports are zipped .app bundles – unpack so the stores ship the bundle itself.
+		if out_path.ends_with(".zip"):
+			var ok := await _unzip_in_place(out_path, row_dir)
+			if _publish_cancelled(ctx):
+				return false
+			if not ok:
+				_fail_publish(p, description, "unpack failed")
+				return false
+			# Godot names the bundle inside the zip after the project name, not
+			# the zip file. Rename it so it matches the executable in the table.
+			if row["kind"] == "macos":
+				_rename_app_bundle(row_dir, row["output"])
+		log_step_done(true, "may not launch" if _exec_bits_lost and row["kind"] == "macos" else "")
 	return true
+
+
+## Build & Publish step 2 for Steam: writes the build script and uploads with
+## SteamCMD. Returns false only when the user stopped the run.
+func _publish_steam(ctx: Dictionary) -> bool:
+	var p: Dictionary = ctx["p"]
+	var build_dir: String = ctx["build_dir"]
+	var vdf_path := build_dir.path_join("app_build.vdf")
+	if not _write_app_build_vdf(vdf_path, p, build_dir, ctx["description"], ctx["rows"]):
+		_add_result(ctx, "Steam", false, "The SteamCMD build script could not be written. See the console.")
+		return true
+	log_line("Wrote %s" % vdf_path, COLOR_INFO)
+
+	log_step("Uploading to Steam")
+	var steam_args := _steam_login_args()
+	steam_args.append_array(["+run_app_build", vdf_path, "+quit"])
+	var typed_code: bool = not %SteamGuardCode.text.strip_edges().is_empty()
+	var upload_code := await run_process(ctx["steamcmd"], steam_args)
+	if _publish_cancelled(ctx):
+		return false
+	if upload_code != 0:
+		log_line("SteamCMD upload failed (exit code %d)." % upload_code, COLOR_ERR)
+		if ctx["depot_check"] == "confirmed" and _seen_issues.has("build_access_denied"):
+			log_line("Steam lists every depot in the table for App %s, so the depot IDs are right; the account's Steamworks permissions are the likely cause." % p["app_id"], COLOR_INFO)
+		var guard_explained := _explain_guard_failure(typed_code)
+		_explain_known_issues("" if guard_explained else STEAMCMD_FALLBACK, _is_selected(p))
+		_add_result(ctx, "Steam", false, "The upload failed. See the console for SteamCMD's error.")
+	else:
+		_mark_login_verified()
+		if _branch_name(p).is_empty():
+			log_line("Upload complete. Set the build live in Steamworks → Builds; for a released app the default branch needs confirmation in the Steam Mobile app. A beta branch has to exist in Steamworks first; then the branch field sets builds live on it.", COLOR_OK)
+			_add_result(ctx, "Steam", true, "Uploaded. Set the build live in Steamworks → Builds.")
+		else:
+			log_line("Upload complete and set live on branch '%s'." % _branch_name(p), COLOR_OK)
+			_add_result(ctx, "Steam", true, "Uploaded and set live on branch '%s'." % _branch_name(p))
+		if _exec_bits_lost and _has_row_kind(ctx, "macos", "steam"):
+			var last: Dictionary = (ctx["results"] as Array).back()
+			last["text"] = "Uploaded, but the macOS build may not launch: it lost its executable bits. Build macOS depots on a Mac."
+			last["color"] = COLOR_WARN
+	log_step_done(upload_code == 0)
+	return true
+
+
+## Build & Publish step 2 for itch.io: pushes each itch.io row to its channel
+## with butler, stopping at the first failure. Returns false only when the
+## user stopped the run.
+func _publish_itch(ctx: Dictionary) -> bool:
+	var p: Dictionary = ctx["p"]
+	var target: String = ctx["target"]
+	var pushed := PackedStringArray()
+	var web := false
+	for row: Dictionary in ctx["rows"]:
+		if not row["itch"]:
+			if _is_folder_app(p) or row["kind"] != "web":
+				log_line("%s has no itch.io channel, so itch.io does not get it." % row["label"], COLOR_INFO)
+			continue
+		var channel: String = row["channel"]
+		log_step("Uploading %s to itch.io (%s:%s)" % [row["label"], target, channel])
+		_progress_label = "Push %s" % channel
+		var args := ButlerTool.push_args(row["dir"], target, channel, ctx["userversion"])
+		var code := await run_process(ctx["butler"], args, KnownIssues.BUTLER, false, _butler_env())
+		_progress_label = ""
+		if _publish_cancelled(ctx):
+			return false
+		if code != 0:
+			log_line("butler could not push %s to %s:%s (exit code %d)." % [row["label"], target, channel, code], COLOR_ERR)
+			_explain_known_issues(BUTLER_FALLBACK, _is_selected(p))
+			var done := " (%s went up before it)" % ", ".join(pushed) if not pushed.is_empty() else ""
+			_add_result(ctx, "itch.io", false, "The upload of %s failed%s. See the console for butler's error." % [channel, done])
+			log_step_done(false)
+			return true
+		pushed.append(channel)
+		web = web or row["kind"] == "web"
+		log_step_done(true)
+	var version := " as version %s" % ctx["userversion"] if not str(ctx["userversion"]).is_empty() else ""
+	log_line("Pushed %s to %s%s. itch.io processes a new build for a minute or two before players can download it; the Edit game page shows its status." % [", ".join(pushed), ButlerTool.page_url(target), version], COLOR_OK)
+	if web:
+		log_line(ITCH_HTML_NOTE, COLOR_INFO)
+	_add_result(ctx, "itch.io", true, "Pushed %s to %s%s." % [", ".join(pushed), target, version])
+	return true
+
+
+## True when a row of platform [param kind] went to [param target] ("steam"
+## or "itch") in this run.
+static func _has_row_kind(ctx: Dictionary, kind: String, target: String) -> bool:
+	for row: Dictionary in ctx["rows"]:
+		if row["kind"] == kind and row[target]:
+			return true
+	return false
 
 
 ## True when [param builds] (SteamAppInfo.branch_builds) has a build live on
@@ -3195,9 +3966,10 @@ func _rename_app_bundle(depot_dir: String, base_name: String) -> bool:
 	return true
 
 
-## Writes SteamCMD's app build script. Returns false (with the reason logged)
-## when the file cannot be written.
-func _write_app_build_vdf(path: String, p: Dictionary, build_dir: String, description: String) -> bool:
+## Writes SteamCMD's app build script for the Steam rows of [param rows]
+## (see _make_publish_ctx), each uploaded from its own folder. Returns false
+## (with the reason logged) when the file cannot be written.
+func _write_app_build_vdf(path: String, p: Dictionary, build_dir: String, description: String, rows: Array) -> bool:
 	var lines: PackedStringArray = [
 		'"AppBuild"',
 		'{',
@@ -3211,9 +3983,11 @@ func _write_app_build_vdf(path: String, p: Dictionary, build_dir: String, descri
 		lines.append('\t"SetLive" "%s"' % _vdf_value(branch))
 	lines.append('\t"Depots"')
 	lines.append('\t{')
-	for d in p["depots"]:
-		var depot_id := str(d["depot_id"]).strip_edges()
-		var root := str(d["content_dir"]).strip_edges() if _is_folder_app(p) else build_dir.path_join("content").path_join(depot_id)
+	for row: Dictionary in rows:
+		if not row["steam"]:
+			continue
+		var depot_id: String = row["depot_id"]
+		var root: String = row["dir"]
 		lines.append_array([
 			'\t\t"%s"' % _vdf_value(depot_id),
 			'\t\t{',
@@ -3796,32 +4570,16 @@ func _on_download_steamcmd_pressed() -> void:
 		return
 
 	_steamcmd_downloading = true
-	var last_bytes := -1
-	var last_progress_ms := Time.get_ticks_msec()
-	while _steamcmd_downloading:
-		var got := _steamcmd_http.get_downloaded_bytes()
-		var total := _steamcmd_http.get_body_size()
-		if total > 0:
-			%SteamCmdStatusLabel.text = "Downloading…  %d%%" % int(100.0 * got / total)
-			_progress_update(url.get_file(), 100.0 * got / total)
-		else:
-			%SteamCmdStatusLabel.text = "Downloading…  %d KB" % (got >> 10)
-		# The request has no timeout (the archive can take a while), so a
-		# connection that stops delivering would otherwise hang here forever.
-		if got != last_bytes:
-			last_bytes = got
-			last_progress_ms = Time.get_ticks_msec()
-		elif Time.get_ticks_msec() - last_progress_ms > DOWNLOAD_STALL_MS:
-			_steamcmd_http.cancel_request()
-			_steamcmd_downloading = false
-			DirAccess.remove_absolute(_steamcmd_archive)
-			_finish_bar(false)
-			log_line("The SteamCMD download stalled (no data for %.0f s). Check your internet connection, VPN or firewall and press Download SteamCMD again, or download it yourself from %s and pick it with the folder button." % [DOWNLOAD_STALL_MS / 1000.0, STEAMCMD_DOCS_URL], COLOR_ERR)
-			log_step_done(false, "stalled")
-			_refresh_setup_state()
-			_set_busy(false)
-			return
-		await get_tree().process_frame
+	var finished := await _await_download(_steamcmd_http, %SteamCmdStatusLabel, url.get_file(), func() -> bool: return _steamcmd_downloading)
+	if not finished:
+		_steamcmd_downloading = false
+		DirAccess.remove_absolute(_steamcmd_archive)
+		_finish_bar(false)
+		log_line("The SteamCMD download stalled (no data for %.0f s). Check your internet connection, VPN or firewall and press Download SteamCMD again, or download it yourself from %s and pick it with the folder button." % [DOWNLOAD_STALL_MS / 1000.0, STEAMCMD_DOCS_URL], COLOR_ERR)
+		log_step_done(false, "stalled")
+		_refresh_setup_state()
+		_set_busy(false)
+		return
 	# cancel_request() never emits request_completed, so finish up here.
 	if _cancel_requested:
 		DirAccess.remove_absolute(_steamcmd_archive)
@@ -3938,6 +4696,336 @@ func _log_steamcmd_runtime_hint() -> void:
 			log_line("SteamCMD is a 32-bit binary. Install the 32-bit runtime first: Debian/Ubuntu 'sudo apt install lib32gcc-s1', Fedora 'sudo dnf install glibc.i686 libstdc++.i686', Arch enable multilib and install lib32-gcc-libs.", COLOR_WARN)
 
 
+## An HTTPRequest for a tool download: no timeout (the archive can take a
+## while; _await_download watches for stalls) and its own thread.
+func _make_download_request(on_completed: Callable) -> HTTPRequest:
+	var http := HTTPRequest.new()
+	http.timeout = 0
+	http.use_threads = true
+	http.request_completed.connect(on_completed)
+	add_child(http)
+	return http
+
+
+## Shows the progress of the download [param http] is running in [param status]
+## and in a console bar called [param bar_label], while [param running]
+## returns true (the completed handler or the stop button clear it). The
+## request has no timeout, so a connection that stops delivering would hang
+## forever: after DOWNLOAD_STALL_MS without a new byte it is cancelled and
+## this returns false.
+func _await_download(http: HTTPRequest, status: Label, bar_label: String, running: Callable) -> bool:
+	var last_bytes := -1
+	var last_progress_ms := Time.get_ticks_msec()
+	while running.call():
+		var got := http.get_downloaded_bytes()
+		var total := http.get_body_size()
+		if total > 0:
+			status.text = "Downloading…  %d%%" % int(100.0 * got / total)
+			_progress_update(bar_label, 100.0 * got / total)
+		else:
+			status.text = "Downloading…  %d KB" % (got >> 10)
+		if got != last_bytes:
+			last_bytes = got
+			last_progress_ms = Time.get_ticks_msec()
+		elif Time.get_ticks_msec() - last_progress_ms > DOWNLOAD_STALL_MS:
+			http.cancel_request()
+			return false
+		await get_tree().process_frame
+	return true
+
+
+# ---------------------------------------------------------------------------
+# butler (itch.io's upload tool) – resolve / find / browse / download
+# ---------------------------------------------------------------------------
+
+## Path and version of the butler _check_butler last asked, so the setup
+## page does not start butler on every refresh.
+var _butler_version_path := ""
+var _butler_version := ""
+
+
+## Turns what the user typed into a runnable butler: a file path, or a bare
+## name looked up on PATH. "" when neither works.
+func _resolve_butler(text: String) -> String:
+	text = text.strip_edges()
+	if text.is_empty():
+		return ""
+	if FileAccess.file_exists(text):
+		return text
+	if "/" in text or "\\" in text:
+		return ""
+	var names: PackedStringArray = [text]
+	if OS.get_name() == "Windows" and not text.ends_with(".exe"):
+		names.append(text + ".exe")
+	for d in _path_dirs():
+		for n in names:
+			var full := d.path_join(n)
+			if FileAccess.file_exists(full):
+				return full
+	return ""
+
+
+## "15.31.0" for the butler at [param exe], "" when it does not answer.
+## butler prints its version to stderr within a few milliseconds, so this
+## runs synchronously.
+static func _probe_butler_version(exe: String) -> String:
+	var output: Array = []
+	if OS.execute(exe, PackedStringArray(["-V"]), output, true) != 0 or output.is_empty():
+		return ""
+	return ButlerTool.parse_version(str(output[0]))
+
+
+## Refreshes the butler status dot, label and Download button. Returns the
+## resolved path or "".
+func _check_butler() -> String:
+	var text: String = %ButlerBinary.text.strip_edges()
+	var resolved := _resolve_butler(text)
+	if resolved != _butler_version_path:
+		_butler_version_path = resolved
+		_butler_version = _probe_butler_version(resolved) if not resolved.is_empty() else ""
+	if text.is_empty():
+		%ButlerStatusLabel.text = "Not installed"
+		_set_status_dot(%ButlerDot, COLOR_MUTED)
+	elif resolved.is_empty():
+		%ButlerStatusLabel.text = "Not found"
+		_set_status_dot(%ButlerDot, COLOR_ERR)
+	elif _butler_version.is_empty():
+		%ButlerStatusLabel.text = "Found, but it did not report a version"
+		_set_status_dot(%ButlerDot, COLOR_WARN)
+	else:
+		%ButlerStatusLabel.text = "Ready · v%s%s" % [_butler_version, " (from the itch app)" if ButlerTool.is_itch_app_copy(resolved) else ""]
+		_set_status_dot(%ButlerDot, COLOR_OK)
+	%ButlerStatusLabel.tooltip_text = resolved
+	%ButlerBinary.tooltip_text = resolved if not resolved.is_empty() else "Path to butler, itch.io's upload tool, or just 'butler' if it is on your PATH. Shared by all apps."
+	var own := resolved.is_empty() or ButlerTool.is_own_copy(resolved)
+	%DownloadButlerButton.text = "Download butler" if resolved.is_empty() else "Update butler"
+	%DownloadButlerButton.visible = own
+	%DownloadButlerButton.tooltip_text = "Downloads itch.io's official butler into this app's data folder and fills in the path" if resolved.is_empty() \
+		else "Downloads the newest butler from itch.io over this app's copy"
+	return resolved
+
+
+func _set_butler_path(path: String) -> void:
+	%ButlerBinary.text = path  # text_changed does not fire on set, commit manually
+	_set_field_error(%ButlerBinary, false)
+	_save_settings()
+	_refresh_setup_state()
+
+
+func _on_detect_butler_pressed() -> void:
+	var current := _check_butler()
+	if not current.is_empty():
+		log_line("butler OK at %s" % current, COLOR_OK)
+		return
+	var found := ButlerTool.candidates(_home_dir(), _path_dirs())
+	if found.is_empty():
+		log_line("No butler found on PATH, in the itch app or in this app's folder. Press Download butler, or pick it with the folder button.", COLOR_WARN)
+		return
+	log_line("Found butler at %s" % found[0], COLOR_OK)
+	_set_butler_path(found[0])
+
+
+## First launch: fills an empty path so the butler row can start out ready.
+func _auto_detect_butler() -> void:
+	if not %ButlerBinary.text.strip_edges().is_empty():
+		return
+	var found := ButlerTool.candidates(_home_dir(), _path_dirs())
+	if found.is_empty():
+		return
+	log_line("Found butler at %s" % found[0], COLOR_OK)
+	_set_butler_path(found[0])
+
+
+func _on_butler_selected(path: String) -> void:
+	_set_butler_path(path)
+	log_line("butler set to %s" % path, COLOR_INFO)
+
+
+## Fetches itch.io's butler archive into user://butler and unpacks it; also
+## "Update butler" for that same copy. A butler from the itch app or a
+## package manager is left alone: its owner keeps it up to date.
+func _on_download_butler_pressed() -> void:
+	if _is_busy:
+		return
+	var url := ButlerTool.download_url()
+	if url.is_empty():
+		log_line("itch.io has no butler build for this computer (%s, %s). See %s" % [OS.get_name(), Engine.get_architecture_name(), ButlerTool.DOCS_URL], COLOR_ERR)
+		return
+	var dir := ButlerTool.install_dir()
+	if not _make_dir(dir):
+		return
+	_butler_archive = dir.path_join("butler.zip")
+
+	_set_busy(true)
+	log_step("Downloading butler from itch.io")
+	_set_status_dot(%ButlerDot, COLOR_WARN)
+	_butler_http.download_file = _butler_archive
+	var err := _butler_http.request(url)
+	if err != OK:
+		log_line("Could not start the download (%s). Check your internet connection and try again, or get butler from %s and pick it with the folder button." % [error_string(err), ButlerTool.DOCS_URL], COLOR_ERR)
+		log_step_done(false)
+		_set_busy(false)
+		return
+	_butler_downloading = true
+	var finished := await _await_download(_butler_http, %ButlerStatusLabel, "butler", func() -> bool: return _butler_downloading)
+	if not finished:
+		_butler_downloading = false
+		DirAccess.remove_absolute(_butler_archive)
+		_finish_bar(false)
+		log_line("The butler download stalled (no data for %.0f s). Check your internet connection, VPN or firewall and press Download butler again." % (DOWNLOAD_STALL_MS / 1000.0), COLOR_ERR)
+		log_step_done(false, "stalled")
+		_refresh_setup_state()
+		_set_busy(false)
+		return
+	# cancel_request() never emits request_completed, so finish up here.
+	if _cancel_requested:
+		DirAccess.remove_absolute(_butler_archive)
+		_finish_bar(false)
+		%ButlerStatusLabel.text = "Download cancelled"
+		_bail_if_cancelled()
+		_refresh_setup_state()
+
+
+func _on_butler_download_completed(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
+	_butler_downloading = false
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		_finish_bar(false)
+		var why := ("itch.io answered HTTP %d" % code) if result == HTTPRequest.RESULT_SUCCESS else KnownIssues.http_result_text(result)
+		log_line("butler download failed: %s. Press Download butler to try again, or get it from %s and pick it with the folder button." % [why, ButlerTool.DOCS_URL], COLOR_ERR)
+		log_step_done(false, "HTTP %d" % code if result == HTTPRequest.RESULT_SUCCESS else "no download")
+		DirAccess.remove_absolute(_butler_archive)
+		_refresh_setup_state()
+		_set_busy(false)
+		return
+	_finish_bar(true)
+	log_line("Downloaded %s" % _butler_archive.get_file(), COLOR_INFO)
+	log_step_done(true)
+
+	log_step("Unpacking butler")
+	%ButlerStatusLabel.text = "Unpacking…"
+	var dir := ButlerTool.install_dir()
+	var exe := dir.path_join(ButlerTool.exe_name())
+	DirAccess.remove_absolute(exe)  # An update replaces the old copy.
+	var ok := await _unzip_in_place(_butler_archive, dir)
+	if _bail_if_cancelled():
+		_refresh_setup_state()
+		return
+	# Godot's own zip reader drops the executable bit; put it back.
+	if ok and OS.get_name() != "Windows" and FileAccess.file_exists(exe):
+		FileAccess.set_unix_permissions(exe, 0x1ED)  # 0755
+	if not ok or not FileAccess.file_exists(exe):
+		log_line("Could not unpack butler into %s. The download may be damaged or the disk full: free up space and press Download butler again." % dir, COLOR_ERR)
+		log_step_done(false)
+		_refresh_setup_state()
+		_set_busy(false)
+		return
+	_butler_version_path = ""  # Probe the new copy.
+	_set_butler_path(exe)
+	if _butler_version.is_empty():
+		log_line("butler was unpacked to %s but did not start. If your security software blocks it, allow it and press Find." % exe, COLOR_ERR)
+		log_step_done(false)
+	else:
+		log_line("butler %s is ready." % _butler_version, COLOR_OK)
+		log_step_done(true)
+	_set_busy(false)
+
+
+# ---------------------------------------------------------------------------
+# itch.io account (API key)
+# ---------------------------------------------------------------------------
+
+## True once Sign in accepted the key that is in the field now.
+func _itch_ok() -> bool:
+	return _itch_verified and not %ItchApiKey.text.strip_edges().is_empty()
+
+
+## A changed key is a different account (or none): it needs Sign in again.
+func _on_itch_key_changed(_text: String) -> void:
+	_set_field_error(%ItchApiKey, false)
+	if _itch_verified:
+		_itch_verified = false
+		_itch_profile_serial = -1
+		_itch_games.clear()
+		%ItchStatusLabel.text = "Press Sign in to check the new key"
+		_save_settings()
+	_refresh_setup_state()
+
+
+func _on_itch_sign_in_pressed() -> void:
+	var key: String = %ItchApiKey.text.strip_edges()
+	if key.is_empty():
+		log_line("Paste an itch.io API key first: itch.io → Settings → API keys → Generate new API key (the key button opens that page).", COLOR_ERR)
+		_set_field_error(%ItchApiKey, true)
+		%ItchApiKey.grab_focus()
+		return
+	log_line("Checking the itch.io API key…", COLOR_INFO)
+	%ItchStatusLabel.text = "Signing in…"
+	_set_status_dot(%ItchDot, COLOR_WARN)
+	%ItchSignInButton.disabled = true
+	_itch_profile_serial = %ItchApi.fetch_profile(key)
+
+
+func _on_itch_profile_ready(serial: int, user: Dictionary, texture: Texture2D) -> void:
+	if serial != _itch_profile_serial:
+		return  # Late answer for a key that is no longer in the field.
+	_itch_profile_serial = -1
+	var fresh: bool = not _itch_verified or _itch_user != user["username"]
+	_itch_verified = true
+	_itch_user = user["username"]
+	_itch_display = user["display_name"]
+	_itch_user_id = user["id"]
+	%ItchAvatarImage.texture = texture
+	%ItchAvatarImage.set_meta("user", _itch_user if texture != null else "")
+	_save_settings()
+	_persist_secrets()
+	%ItchStatusLabel.text = "Signed in as %s" % _itch_user
+	if fresh:
+		log_line("Signed in to itch.io as %s." % _itch_user, COLOR_OK)
+	%ItchSignInButton.disabled = _is_busy
+	_refresh_setup_state()
+
+
+func _on_itch_profile_failed(serial: int, reason: String, unauthorized: bool) -> void:
+	if serial != _itch_profile_serial:
+		return
+	_itch_profile_serial = -1
+	%ItchSignInButton.disabled = _is_busy
+	if not unauthorized and _itch_verified:
+		# Offline at start: keep the remembered sign-in, butler will tell.
+		log_line("Could not refresh the itch.io account (%s)." % reason, COLOR_INFO)
+		_refresh_setup_state()
+		return
+	_itch_verified = false
+	_save_settings()
+	if unauthorized:
+		%ItchStatusLabel.text = "Key not accepted"
+		_set_field_error(%ItchApiKey, true)
+		log_line("itch.io did not accept the API key. Copy it again from itch.io → Settings → API keys (a revoked key stops working).", COLOR_ERR)
+	else:
+		%ItchStatusLabel.text = "Sign-in failed"
+		log_line("Could not check the itch.io API key: %s. Try again in a moment." % reason, COLOR_ERR)
+	_refresh_setup_state()
+
+
+## Sign out: forgets the key (also in the credential store) and the account.
+func _on_itch_sign_out_pressed() -> void:
+	if _is_busy:
+		return
+	_itch_verified = false
+	_itch_user = ""
+	_itch_display = ""
+	_itch_user_id = ""
+	_itch_games.clear()
+	_itch_profile_serial = -1
+	%ItchApiKey.text = ""
+	%ItchAvatarImage.texture = null
+	_save_settings()
+	_persist_secrets()
+	%ItchStatusLabel.text = "Signed out"
+	log_line("Signed out of itch.io. The API key was removed from this app; it still works until you revoke it on itch.io → Settings → API keys.", COLOR_OK)
+	_refresh_setup_state()
+
+
 # ---------------------------------------------------------------------------
 # Process runner – streams stdout/stderr into the console live
 # ---------------------------------------------------------------------------
@@ -4012,7 +5100,10 @@ static func _steamcmd_launch(exe: String, args: PackedStringArray) -> Dictionary
 ## A Steam Guard code submitted while SteamCMD was not at a code prompt kills
 ## the run and starts it again with the code (see [method _submit_guard_code]);
 ## [param restarted] marks that second launch.
-func run_process(exe: String, args: PackedStringArray, tool := "", restarted := false) -> int:
+## [param env] (name → value) is set in this process's environment only for
+## the instant the child is started, which inherits it: the way the itch.io
+## API key reaches butler without showing up on a command line.
+func run_process(exe: String, args: PackedStringArray, tool := "", restarted := false, env := {}) -> int:
 	var program := exe
 	var given_args := args
 	if tool.is_empty() and is_steamcmd_exe(program):
@@ -4023,9 +5114,18 @@ func run_process(exe: String, args: PackedStringArray, tool := "", restarted := 
 	log_cmd(exe, _redact(args))
 	_child_tool = tool
 	_seen_issues.clear()
-	_progress = ConsoleProgress.new(tool) if ConsoleProgress.reads(tool) else null
+	_progress = ConsoleProgress.new(tool, _progress_label) if ConsoleProgress.reads(tool) else null
 
+	if not env.is_empty():
+		# A credential-store helper started by the secret thread right now
+		# would inherit the variables too; let it finish first.
+		while _secret_thread != null:
+			await get_tree().process_frame
+		for key: String in env:
+			OS.set_environment(key, env[key])
 	var info := OS.execute_with_pipe(exe, args, false)
+	for key: String in env:
+		OS.unset_environment(key)
 	if info.is_empty():
 		_log_start_failure(program)
 		return -1
@@ -4077,7 +5177,7 @@ func run_process(exe: String, args: PackedStringArray, tool := "", restarted := 
 		_finish_bar(false)
 		if _capturing:
 			_capture.clear()  # The killed run's output is incomplete.
-		return await run_process(program, _with_guard_code(given_args, restart_code), tool, true)
+		return await run_process(program, _with_guard_code(given_args, restart_code), tool, true, env)
 
 	if _cancel_requested:
 		_finish_bar(false)
@@ -4103,6 +5203,9 @@ func _cancel_running() -> void:
 	if _steamcmd_downloading:
 		_steamcmd_http.cancel_request()
 		_steamcmd_downloading = false
+	if _butler_downloading:
+		_butler_http.cancel_request()
+		_butler_downloading = false
 
 
 ## Kills the child run_process is waiting on, together with everything it
@@ -4225,26 +5328,38 @@ static var _ansi_re := RegEx.create_from_string("\\x1b\\[[0-9;?]*[A-Za-z]")
 
 
 func _emit_pipe_line(line: String, is_stderr: bool) -> void:
-	line = _mask_sent_password(_ansi_re.sub(line, "", true))
+	line = _mask_secrets(_ansi_re.sub(line, "", true))
 	if line.is_empty():
 		return
-	if not _show_progress(line):
+	if not _show_progress(line, is_stderr):
 		log_out(line, is_stderr)
 	if _capturing and not is_stderr:
 		_capture_line(line)
-	_check_guard_prompt(line)
-	_check_guard_failure(line)
+	# Only SteamCMD signs in to Steam; another tool's "password:" or "denied"
+	# must not type the Steam password into it or blame Steam Guard.
+	if _child_tool == KnownIssues.STEAMCMD:
+		_check_guard_prompt(line)
+		_check_guard_failure(line)
 	_check_known_issue(line)
 
 
 ## Feeds [param line] to the running child's progress reader. Returns true
-## when the line was folded into a progress bar and must not be printed.
-func _show_progress(line: String) -> bool:
+## when the line was handled there (folded into a bar, dropped, or printed
+## as the reader's own text) and must not be printed as is.
+func _show_progress(line: String, is_stderr := false) -> bool:
 	if _progress == null:
 		return false
 	var step := _progress.feed(line)
 	if step.is_empty():
 		return false
+	if step.has("text"):
+		var text := str(step["text"])
+		if not text.is_empty():
+			if step.get("err", false):
+				log_line(text, COLOR_ERR)
+			else:
+				log_out(text, is_stderr)
+		return true
 	if step.has("label"):
 		_progress_update(step["label"], step["pct"])
 		if step.get("end", false):
@@ -4281,7 +5396,7 @@ func _explain_known_issues(fallback: String, banner := true) -> bool:
 			log_line("→ " + fallback, COLOR_INFO)
 			# Still say it failed where it shows with the console hidden.
 			if banner and _selected_index >= 0:
-				var what := "The export failed. See the console for Godot's error." if fallback == EXPORT_FALLBACK else "SteamCMD failed. See the console for its error."
+				var what: String = FALLBACK_BANNERS.get(fallback, "Something failed. See the console for the error.")
 				_run_status = { "text": what, "color": COLOR_ERR }
 				_refresh_banners()
 		return false
@@ -4296,12 +5411,13 @@ func _explain_known_issues(fallback: String, banner := true) -> bool:
 ## A partial line that went quiet: shown like any output, then checked for a
 ## Steam Guard prompt so the user can answer while SteamCMD waits.
 func _emit_pipe_prompt(text: String, is_stderr: bool) -> void:
-	text = _mask_sent_password(_ansi_re.sub(text, "", true))
+	text = _mask_secrets(_ansi_re.sub(text, "", true))
 	if text.strip_edges().is_empty():
 		return
-	if not _show_progress(text):
+	if not _show_progress(text, is_stderr):
 		log_out(text, is_stderr)
-	_check_guard_prompt(text)
+	if _child_tool == KnownIssues.STEAMCMD:
+		_check_guard_prompt(text)
 
 
 func _check_guard_prompt(text: String) -> void:
@@ -4333,9 +5449,9 @@ func _on_password_prompt() -> void:
 		_password_sent = _write_child_stdin(password)
 		return
 	if _password_sent:
-		log_line("Steam did not accept the password. Check it on the SteamCMD page.", COLOR_ERR)
+		log_line("Steam did not accept the password. Check it on the Setup page.", COLOR_ERR)
 	else:
-		log_line("SteamCMD asked for the password of %s and none is entered. Enter it on the SteamCMD page (Remember keeps it)." % %SteamUsername.text.strip_edges(), COLOR_WARN)
+		log_line("SteamCMD asked for the password of %s and none is entered. Enter it on the Setup page (Remember keeps it)." % %SteamUsername.text.strip_edges(), COLOR_WARN)
 	_kill_child()
 
 
@@ -4353,10 +5469,10 @@ func _capture_line(line: String) -> void:
 
 ## Like [method run_process], but also returns everything the process wrote to
 ## stdout: { "code": int, "output": String }.
-func run_process_capture(exe: String, args: PackedStringArray) -> Dictionary:
+func run_process_capture(exe: String, args: PackedStringArray, tool := "", env := {}) -> Dictionary:
 	_capture = PackedStringArray()
 	_capturing = true
-	var code := await run_process(exe, args)
+	var code := await run_process(exe, args, tool, false, env)
 	# Reader threads have joined, but their deferred appends land next frame.
 	await get_tree().process_frame
 	_capturing = false
@@ -4393,14 +5509,18 @@ func _redact(args: PackedStringArray) -> PackedStringArray:
 	return out
 
 
-## [param text] with the password masked once it was written to the child,
-## in case the child echoes its input. Short passwords are left alone: they
-## would mask ordinary words in the output.
-func _mask_sent_password(text: String) -> String:
+## [param text] with the Steam password masked once it was written to the
+## child, in case the child echoes its input, and the itch.io API key masked
+## always. Short passwords are left alone: they would mask ordinary words in
+## the output.
+func _mask_secrets(text: String) -> String:
 	var password: String = %SteamPassword.text
-	if not _password_sent or password.length() < 6:
-		return text
-	return text.replace(password, "•••••")
+	if _password_sent and password.length() >= 6:
+		text = text.replace(password, "•••••")
+	var key: String = %ItchApiKey.text.strip_edges()
+	if key.length() >= 8:
+		text = text.replace(key, "•••••")
+	return text
 
 
 # ---------------------------------------------------------------------------
@@ -4478,23 +5598,33 @@ func _login_ok() -> bool:
 	return _login_verified and not user.is_empty() and user == _login_verified_user
 
 
-## Both checklist steps done: SteamCMD resolves and the login was verified.
-func _setup_complete() -> bool:
+## Steam is ready to publish to: SteamCMD resolves and the login was verified.
+func _steam_setup_complete() -> bool:
 	return not _resolve_steamcmd(%SteamCmdBinary.text).is_empty() and _login_ok()
+
+
+## itch.io is ready to publish to: butler resolves and the key was accepted.
+func _itch_setup_complete() -> bool:
+	return not _resolve_butler(%ButlerBinary.text).is_empty() and _itch_ok()
+
+
+## At least one store is set up, which is all adding an app needs.
+func _setup_complete() -> bool:
+	return _itch_setup_complete() or _steam_setup_complete()
 
 
 ## What is still missing before an app can be added; logged when "New app" is
 ## pressed too early.
 func _setup_hint() -> String:
+	if _setup_complete():
+		return "All set. Add an app to publish it to %s." % ("Steam and itch.io" if _itch_setup_complete() and _steam_setup_complete() else ("itch.io" if _itch_setup_complete() else "Steam"))
+	var butler_ok := not _resolve_butler(%ButlerBinary.text).is_empty()
+	var itch := "set up butler and sign in to itch.io" if not butler_ok and not _itch_ok() \
+		else ("set up butler" if not butler_ok else "sign in to itch.io")
 	var steamcmd_ok := not _resolve_steamcmd(%SteamCmdBinary.text).is_empty()
-	var login_ok := _login_ok()
-	if steamcmd_ok and login_ok:
-		return "All set. Add an app to publish it to Steam."
-	if not steamcmd_ok and not login_ok:
-		return "Sign in to Steam and set up SteamCMD to add an app."
-	if not steamcmd_ok:
-		return "Set up SteamCMD to add an app."
-	return "Sign in to Steam to add an app."
+	var steam := "set up SteamCMD and sign in to Steam" if not steamcmd_ok and not _login_ok() \
+		else ("set up SteamCMD" if not steamcmd_ok else "sign in to Steam")
+	return "To add an app, %s (to publish on itch.io), or %s (to publish on Steam)." % [itch, steam]
 
 
 ## Re-evaluates both steps, the badges and the sidebar. Cheap enough to call
@@ -4519,9 +5649,25 @@ func _refresh_setup_state() -> void:
 	else:
 		_set_status_dot(%AccountDot, COLOR_MUTED)
 
+	_check_butler()
+	if _itch_profile_serial >= 0:
+		_set_status_dot(%ItchDot, COLOR_WARN)  # Sign-in answer still pending.
+	elif _itch_ok():
+		if not %ItchStatusLabel.text.begins_with("Signed in"):
+			%ItchStatusLabel.text = "Signed in as %s" % _itch_user
+		_set_status_dot(%ItchDot, COLOR_OK)
+	else:
+		if %ItchStatusLabel.text.begins_with("Signed in"):
+			%ItchStatusLabel.text = "Not signed in"
+		_set_status_dot(%ItchDot, COLOR_ERR if %ItchStatusLabel.text == "Key not accepted" else COLOR_MUTED)
+	%ItchSignOutButton.visible = _itch_ok() or not %ItchApiKey.text.is_empty()
+
 	_update_add_app_button()
 	%SteamSignOutButton.visible = login_ok
 	_update_steam_header()
+	_update_itch_header()
+	if _selected_index >= 0:
+		_refresh_target_toggles()
 
 
 ## Colours the status dot of a card row; the row text is set by the caller.
@@ -4532,11 +5678,34 @@ func _set_status_dot(dot: Panel, color: String) -> void:
 ## The "+" next to "Apps" only greys out while busy; with the setup incomplete
 ## it stays clickable and _on_new_app_pressed shows what is missing.
 func _update_add_app_button() -> void:
-	var tooltip := "Add an app (%s)" % _shortcut_label("N") if _setup_complete() else "Finish the SteamCMD setup to add an app"
+	var tooltip := "Add an app (%s)" % _shortcut_label("N") if _setup_complete() else "Set up itch.io or Steam on the Setup page to add an app"
 	%AddAppButton.disabled = _is_busy
 	%AddAppButton.tooltip_text = tooltip
 	%NewAppButton.disabled = _is_busy
 	%NewAppButton.tooltip_text = tooltip
+
+
+## The itch.io chip in the sidebar footer: avatar (or first letter), name and
+## status. The footer shows a chip per signed-in store; with none signed in
+## both show, so each one leads to its setup.
+func _update_itch_header() -> void:
+	var itch := _itch_ok()
+	var steam := _login_ok()
+	%ItchAccountHeader.visible = itch or not steam
+	%SteamAccountHeader.visible = steam or not itch
+	if not itch:
+		%ItchAvatarLetter.text = "i"
+		%ItchAvatarLetter.visible = true
+		%ItchAvatarImage.visible = false
+		%ItchAccountName.text = "itch.io account"
+		%ItchAccountSub.text = "Not signed in"
+		return
+	var has_picture: bool = %ItchAvatarImage.texture != null and %ItchAvatarImage.get_meta("user", "") == _itch_user
+	%ItchAvatarLetter.text = _itch_user.substr(0, 1).to_upper()
+	%ItchAvatarLetter.visible = not has_picture
+	%ItchAvatarImage.visible = has_picture
+	%ItchAccountName.text = _itch_display if not _itch_display.is_empty() else _itch_user
+	%ItchAccountSub.text = "itch.io · signed in"
 
 
 ## Header row of the account panel: avatar, name and a one-line status. Only a
@@ -4556,7 +5725,7 @@ func _update_steam_header() -> void:
 	%AvatarLetter.visible = not has_picture
 	%AvatarImage.visible = has_picture
 	%SteamAccountName.text = _login_persona if not _login_persona.is_empty() else user
-	%SteamAccountSub.text = "Signed in"
+	%SteamAccountSub.text = "Steam · signed in"
 
 
 func _on_profile_ready(username: String, persona: String, texture: Texture2D) -> void:
@@ -4925,7 +6094,7 @@ func _copy_console() -> void:
 func _diagnostics_report() -> String:
 	var out := PackedStringArray()
 	var app_version := str(ProjectSettings.get_setting("application/config/version", ""))
-	out.append("I use %s, a desktop app that exports Godot projects and uploads them to Steam with SteamCMD. Below are my setup and the console output. Help me find and fix the problem." % _app_name())
+	out.append("I use %s, a desktop app that exports Godot projects and uploads them to Steam with SteamCMD and to itch.io with butler. Below are my setup and the console output. Help me find and fix the problem." % _app_name())
 	out.append("")
 	out.append("%s diagnostics · %s" % [_app_name(), Time.get_datetime_string_from_system()])
 	out.append("App version: %s · engine %s" % [app_version if not app_version.is_empty() else "dev", Engine.get_version_info()["string"]])
@@ -4947,6 +6116,12 @@ func _diagnostics_report() -> String:
 	out.append("Account: username set %s · signed in %s · password entered %s (remembered %s) · Steam Guard %s" % [
 		_yes_no(not %SteamUsername.text.strip_edges().is_empty()), _yes_no(_login_ok()),
 		_yes_no(not %SteamPassword.text.is_empty()), _yes_no(%RememberPassword.button_pressed), guard])
+	var butler_typed: String = %ButlerBinary.text.strip_edges()
+	var butler := _resolve_butler(butler_typed)
+	out.append("butler: field '%s' → %s%s" % [butler_typed, butler if not butler.is_empty() else "NOT FOUND",
+		" (version %s)" % _butler_version if not butler.is_empty() and butler == _butler_version_path and not _butler_version.is_empty() else ""])
+	out.append("itch.io: API key entered %s (remembered %s) · signed in %s" % [
+		_yes_no(not %ItchApiKey.text.strip_edges().is_empty()), _yes_no(%RememberItchKey.button_pressed), _yes_no(_itch_ok())])
 	out.append("Apps in the list: %d · busy: %s" % [_projects.size(), _yes_no(_is_busy)])
 	out.append("")
 
@@ -4957,7 +6132,9 @@ func _diagnostics_report() -> String:
 		out.append("Selected app: '%s' (%s)" % [p["name"], "content folder" if folder else "Godot project"])
 		out.append("  Folder: %s (exists: %s%s)" % [path, _yes_no(DirAccess.dir_exists_absolute(path)),
 			"" if folder else ", project.godot: %s, imported: %s" % [_yes_no(_project_file_exists(p)), _yes_no(DirAccess.dir_exists_absolute(path.path_join(".godot")))]])
-		out.append("  App ID: '%s' · branch: '%s'" % [p.get("app_id", ""), p.get("branch", "")])
+		out.append("  Publishes to: %s" % _targets_label(p))
+		out.append("  Steam App ID: '%s' · branch: '%s'" % [p.get("app_id", ""), p.get("branch", "")])
+		out.append("  itch.io game: '%s'" % p.get("itch_target", ""))
 		if not folder:
 			var binary := str(p.get("godot_binary", ""))
 			var cached: Dictionary = _version_cache.get(binary, {})
@@ -4972,19 +6149,19 @@ func _diagnostics_report() -> String:
 			out.append("  Export presets: %s" % (", ".join(presets) if not presets.is_empty() else "NONE"))
 		var depots: Array = p["depots"]
 		if depots.is_empty():
-			out.append("  Depots: none")
+			out.append("  Build rows: none")
 		for i in depots.size():
 			var d: Dictionary = depots[i]
 			if folder:
 				var dir := str(d.get("content_dir", "")).strip_edges()
-				out.append("  Depot %d: id '%s' · folder %s (exists: %s)" % [i + 1, d.get("depot_id", ""), dir, _yes_no(DirAccess.dir_exists_absolute(dir))])
+				out.append("  Row %d: depot id '%s' · channel '%s' · folder %s (exists: %s)" % [i + 1, d.get("depot_id", ""), d.get("itch_channel", ""), dir, _yes_no(DirAccess.dir_exists_absolute(dir))])
 			else:
 				var preset := str(d.get("preset", ""))
 				var kind := _platform_kind(_preset_names.find(preset))
-				out.append("  Depot %d: id '%s' · preset '%s' (%s) · executable '%s'" % [i + 1, d.get("depot_id", ""), preset,
+				out.append("  Row %d: depot id '%s' · channel '%s' · preset '%s' (%s) · executable '%s'" % [i + 1, d.get("depot_id", ""), d.get("itch_channel", ""), preset,
 					"%s, %s" % ["found", kind if not kind.is_empty() else "unknown platform"] if _preset_names.has(preset) else "MISSING", d.get("output", "")])
 	else:
-		out.append("Selected app: none (SteamCMD page)")
+		out.append("Selected app: none (Setup page)")
 	out.append("")
 
 	var lines: PackedStringArray = %Console.get_parsed_text().split("\n")
@@ -4994,14 +6171,15 @@ func _diagnostics_report() -> String:
 	return _redact_report("\n".join(out))
 
 
-## [param text] with the password, shared secret, Guard code, account and
-## persona names and the home folder replaced. Values shorter than 3
-## characters are left alone so they do not blank out random words.
+## [param text] with the password, shared secret, Guard code, itch.io API key,
+## account and persona names and the home folder replaced. Values shorter
+## than 3 characters are left alone so they do not blank out random words.
 func _redact_report(text: String) -> String:
 	for pair: Array in [
 		[%SteamPassword.text, "<password>"],
 		[%SteamSharedSecret.text.strip_edges(), "<shared secret>"],
 		[%SteamGuardCode.text.strip_edges(), "<code>"],
+		[%ItchApiKey.text.strip_edges(), "<itch.io api key>"],
 	]:
 		if str(pair[0]).length() >= 3:
 			text = text.replacen(pair[0], pair[1])
@@ -5012,6 +6190,8 @@ func _redact_report(text: String) -> String:
 		[%SteamUsername.text.strip_edges(), "<account>"],
 		[_login_verified_user, "<account>"],
 		[_login_persona, "<persona>"],
+		[_itch_display, "<itch.io name>"],
+		[_itch_user, "<itch.io account>"],
 	]:
 		if str(pair[0]).length() >= 3:
 			text = text.replacen(pair[0], pair[1])
@@ -5107,6 +6287,11 @@ func _set_busy(busy: bool) -> void:
 	%DetectSteamCmdButton.disabled = busy
 	%BrowseSteamCmdButton.disabled = busy
 	%DownloadSteamCmdButton.disabled = busy
+	%DetectButlerButton.disabled = busy
+	%BrowseButlerButton.disabled = busy
+	%DownloadButlerButton.disabled = busy
+	%ItchSignOutButton.disabled = busy
+	%ItchSignInButton.disabled = busy or _itch_profile_serial >= 0
 	_apply_build_lock()
 	if not busy and _auto_fetch_pending:
 		_auto_fetch_pending = false
@@ -5120,19 +6305,24 @@ func _set_busy(busy: bool) -> void:
 ## export loop walks. Other apps stay editable during the run.
 func _apply_build_lock() -> void:
 	var locked := not _publishing.is_empty() and _is_selected(_publishing)
-	for field: LineEdit in [%GodotBinary, %AppId, %Branch]:
+	for field: LineEdit in [%GodotBinary, %AppId, %Branch, %ItchTarget]:
 		field.editable = not locked
 	%BrowseGodotButton.disabled = locked
 	%CheckGodotButton.disabled = locked
+	%PickItchGameButton.disabled = locked
+	if _selected_index >= 0:
+		_refresh_target_toggles()
 	# Rows of another app keep their own busy state (set when built).
 	if locked or not _is_busy:
 		for row in %DepotRows.get_children():
 			_lock_controls(row, locked)
 
 
+## Fields marked "always_locked" (a web row's depot ID and file name) stay
+## read-only when the rest unlocks.
 static func _lock_controls(node: Node, locked: bool) -> void:
 	if node is LineEdit:
-		node.editable = not locked
+		node.editable = not locked and not node.get_meta("always_locked", false)
 	elif node is BaseButton:
 		node.disabled = locked
 	for child in node.get_children():
@@ -5176,6 +6366,7 @@ func _load_projects(path := PROJECTS_FILE) -> void:
 			("The old file was kept as %s." % backup) if not backup.is_empty() else "",
 			path.get_file()], COLOR_ERR)
 		return
+	var migrated := false
 	for section in cfg.get_sections():
 		var raw := {}
 		for key in cfg.get_section_keys(section):
@@ -5184,7 +6375,10 @@ func _load_projects(path := PROJECTS_FILE) -> void:
 		if p.is_empty():
 			log_line("Skipped a broken entry [%s] in %s: it has no folder. Add that app again." % [section, ProjectSettings.globalize_path(path)], COLOR_WARN)
 			continue
+		migrated = migrated or not raw.has("uid")
 		_projects.append(p)
+	if migrated and path == PROJECTS_FILE:
+		_save_projects()  # Keeps the build folder names from this start on.
 
 
 ## [param raw] (one projects.cfg section) with every field the app reads
@@ -5195,13 +6389,18 @@ func _sanitize_project(raw: Dictionary) -> Dictionary:
 	if path.is_empty():
 		return {}
 	var p := raw.duplicate(true)
-	for key in ["name", "godot_binary", "app_id", "branch", "description"]:
+	for key in ["name", "godot_binary", "app_id", "branch", "description", "itch_target"]:
 		p[key] = _as_str(raw.get(key))
 	p["path"] = path
 	if str(p["name"]).strip_edges().is_empty():
 		p["name"] = path.get_file()
 	p["kind"] = "folder" if _as_str(raw.get("kind")) == "folder" else "godot"
 	p["folder_notice_dismissed"] = _as_bool(raw.get("folder_notice_dismissed"))
+	# Apps from before itch.io support publish to Steam, as they always did.
+	p["steam_enabled"] = _as_bool(raw.get("steam_enabled")) if raw.has("steam_enabled") else true
+	p["itch_enabled"] = _as_bool(raw.get("itch_enabled"))
+	var uid := _as_str(raw.get("uid")).strip_edges()
+	p["uid"] = uid if uid.is_valid_hex_number() else Crypto.new().generate_random_bytes(6).hex_encode()
 	var depots: Array = []
 	var raw_depots: Variant = raw.get("depots")
 	if raw_depots is Array:
@@ -5209,12 +6408,17 @@ func _sanitize_project(raw: Dictionary) -> Dictionary:
 			if not d is Dictionary:
 				continue
 			if p["kind"] == "folder":
-				depots.append({"content_dir": _as_str(d.get("content_dir")), "depot_id": _as_str(d.get("depot_id"))})
+				depots.append({
+					"content_dir": _as_str(d.get("content_dir")),
+					"depot_id": _as_str(d.get("depot_id")),
+					"itch_channel": _as_str(d.get("itch_channel")),
+				})
 			else:
 				depots.append({
 					"preset": _as_str(d.get("preset")),
 					"depot_id": _as_str(d.get("depot_id")),
 					"output": _strip_known_extension(_as_str(d.get("output"))),
+					"itch_channel": _as_str(d.get("itch_channel")),
 				})
 	p["depots"] = depots
 	return p
@@ -5255,12 +6459,19 @@ func _report_save(err: Error, path: String) -> void:
 	log_line("Could not save %s (%s). Changes stay only until you quit. Free up disk space and check that %s is writable." % [ProjectSettings.globalize_path(path), error_string(err), OS.get_user_data_dir()], COLOR_WARN)
 
 
-## Only the "Remember" toggles are written here, never the password or shared
-## secret themselves: those go to the OS credential store (see
-## [method _persist_secrets]) and otherwise live in memory until the app quits.
+## Only the "Remember" toggles are written here, never the password, shared
+## secret or itch.io API key themselves: those go to the OS credential store
+## (see [method _persist_secrets]) and otherwise live in memory until the app
+## quits.
 func _save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("tools", "steamcmd_binary", %SteamCmdBinary.text)
+	cfg.set_value("tools", "butler_binary", %ButlerBinary.text)
+	cfg.set_value("itch", "verified", _itch_verified)
+	cfg.set_value("itch", "username", _itch_user)
+	cfg.set_value("itch", "display_name", _itch_display)
+	cfg.set_value("itch", "user_id", _itch_user_id)
+	cfg.set_value("itch", "remember_api_key", %RememberItchKey.button_pressed)
 	cfg.set_value("steam", "username", %SteamUsername.text)
 	cfg.set_value("steam", "login_verified", _login_verified)
 	cfg.set_value("steam", "login_verified_user", _login_verified_user)
@@ -5279,11 +6490,17 @@ func _load_settings() -> void:
 	var err := cfg.load(SETTINGS_FILE)
 	if err != OK:
 		var backup := _backup_broken_file(SETTINGS_FILE)
-		log_line("Your settings could not be read (%s), so SteamCMD and the Steam account need to be set up again. %s" % [
+		log_line("Your settings could not be read (%s), so the tools and accounts on the Setup page need to be set up again. %s" % [
 			error_string(err),
 			("The old file was kept as %s." % backup) if not backup.is_empty() else ""], COLOR_WARN)
 		return
 	%SteamCmdBinary.text = _as_str(cfg.get_value("tools", "steamcmd_binary", ""))
+	%ButlerBinary.text = _as_str(cfg.get_value("tools", "butler_binary", ""))
+	_itch_verified = _as_bool(cfg.get_value("itch", "verified", false))
+	_itch_user = _as_str(cfg.get_value("itch", "username", ""))
+	_itch_display = _as_str(cfg.get_value("itch", "display_name", ""))
+	_itch_user_id = _as_str(cfg.get_value("itch", "user_id", ""))
+	%RememberItchKey.set_pressed_no_signal(_as_bool(cfg.get_value("itch", "remember_api_key", true)))
 	%SteamUsername.text = _as_str(cfg.get_value("steam", "username", ""))
 	_login_verified = _as_bool(cfg.get_value("steam", "login_verified", false))
 	_login_verified_user = _as_str(cfg.get_value("steam", "login_verified_user", ""))
@@ -5302,6 +6519,12 @@ func _load_settings() -> void:
 		%SteamStatusLabel.text = "Signed in"
 		# Cached avatar (or a fresh one when nothing is cached yet).
 		%SteamProfile.fetch(_login_verified_user, _resolve_steamcmd(%SteamCmdBinary.text))
+	if _itch_verified and %ItchApiKey.text.strip_edges().is_empty():
+		_itch_verified = false  # The key was not remembered; sign in again.
+	if _itch_ok():
+		%ItchStatusLabel.text = "Signed in as %s" % _itch_user
+		# Trust the remembered sign-in now, check the key and avatar quietly.
+		_itch_profile_serial = %ItchApi.fetch_profile(%ItchApiKey.text)
 
 
 # ---------------------------------------------------------------------------
@@ -5309,15 +6532,15 @@ func _load_settings() -> void:
 # ---------------------------------------------------------------------------
 
 func _secret_field(key: String) -> LineEdit:
-	return %SteamPassword if key == SECRET_PASSWORD else %SteamSharedSecret
+	return _secrets[key]["field"]
 
 
 func _secret_remember_button(key: String) -> Button:
-	return %RememberPassword if key == SECRET_PASSWORD else %RememberSharedSecret
+	return _secrets[key]["remember"]
 
 
-static func _secret_label(key: String) -> String:
-	return "password" if key == SECRET_PASSWORD else "shared secret"
+func _secret_label(key: String) -> String:
+	return _secrets[key]["label"]
 
 
 ## Without a credential store (Linux without secret-tool or a running keyring)
@@ -5326,14 +6549,14 @@ static func _secret_label(key: String) -> String:
 func _apply_secret_store_state() -> void:
 	if not SecretStore.backend().is_empty():
 		return
-	for key: String in [SECRET_PASSWORD, SECRET_SHARED_SECRET]:
+	for key: String in _secrets:
 		var button := _secret_remember_button(key)
 		button.set_pressed_no_signal(false)
 		button.disabled = true
 		button.get_parent().tooltip_text = "No keyring found, so the %s cannot be remembered. Install secret-tool (package libsecret-tools or libsecret) and a keyring such as GNOME Keyring or KWallet, then restart the app." % _secret_label(key)
 
 
-## Fills the password and shared secret fields from the OS credential store.
+## Fills the remembered secret fields (see _secrets) from the OS credential store.
 ## [param plain] (SecretStore key -> value) holds the plain-text copies older
 ## versions kept in settings.cfg: they are moved to the store and removed
 ## from the file.
@@ -5341,7 +6564,7 @@ func _load_secrets(plain: Dictionary) -> void:
 	var store := SecretStore.backend()
 	var moved := PackedStringArray()
 	var dropped := PackedStringArray()
-	for key: String in [SECRET_PASSWORD, SECRET_SHARED_SECRET]:
+	for key: String in _secrets:
 		var remember := _secret_remember_button(key)
 		if store.is_empty():
 			remember.set_pressed_no_signal(false)
@@ -5374,7 +6597,7 @@ func _load_secrets(plain: Dictionary) -> void:
 ## the field text with Remember on, "" (erase) with it off.
 func _secret_changes() -> Dictionary:
 	var changes := {}
-	for key: String in [SECRET_PASSWORD, SECRET_SHARED_SECRET]:
+	for key: String in _secrets:
 		var wanted: String = _secret_field(key).text if _secret_remember_button(key).button_pressed else ""
 		if wanted != _stored_secrets.get(key, ""):
 			changes[key] = wanted

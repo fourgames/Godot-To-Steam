@@ -13,6 +13,11 @@ extends RefCounted
 ##   "[----] Downloading update (0 of 31,262 KB)...",
 ##   "[ 38%] Downloading update (11,996 of 31,262 KB)...",
 ##   "[100%] Download Complete.".
+## - butler with --json: one JSON object per line, e.g.
+##   {"type":"progress","progress":0.42,"eta":12.5,"bps":1048576,…},
+##   {"type":"log","level":"info","message":"…"} and, when it gives up,
+##   {"type":"error","message":"<reason>\n<Go stack trace>"}. It then repeats
+##   the error on stderr as "bailing out: <reason>" plus the stack trace.
 ## - SteamCMD run_app_build, per depot: "[2026-09-11 10:17:15]: Building depot
 ##   2807131...", "Scanning content", "......... 184.3MB (30%)" (the dots
 ##   arrive a few at a time, so a quiet pipe can split them off as their own
@@ -23,6 +28,7 @@ extends RefCounted
 
 const GODOT := "godot"
 const STEAMCMD := "steamcmd"
+const BUTLER := "butler"
 
 ## Friendlier bar labels for Godot's progress task names.
 const GODOT_TASKS := {
@@ -45,8 +51,12 @@ static var _depot_re := RegEx.create_from_string("Building depot (\\d+)")
 static var _scan_re := RegEx.create_from_string("^\\.*\\s*[\\d.,]+\\s*[KMGT]?B\\s*\\((\\d{1,3})%\\)\\s*$")
 static var _dots_re := RegEx.create_from_string("^\\.+\\s*$")
 
-## KnownIssues.GODOT or KnownIssues.STEAMCMD (the same strings).
+## KnownIssues.GODOT, KnownIssues.STEAMCMD or KnownIssues.BUTLER (the same strings).
 var tool := ""
+## Bar label for tools whose output does not name what it works on (butler).
+var bar_label := ""
+## butler: set after "bailing out:", whose stack trace lines are all dropped.
+var _bailing := false
 ## Godot 4.3 task name → its step count, from the "begin" line.
 var _steps := {}
 ## SteamCMD: depot being built, and whether its scan bar is running.
@@ -54,24 +64,28 @@ var _depot := ""
 var _scanning := false
 
 
-func _init(p_tool: String) -> void:
+func _init(p_tool: String, p_label := "") -> void:
 	tool = p_tool
+	bar_label = p_label
 
 
 ## True when [param p_tool]'s output has progress lines this class reads.
 static func reads(p_tool: String) -> bool:
-	return p_tool == GODOT or p_tool == STEAMCMD
+	return p_tool == GODOT or p_tool == STEAMCMD or p_tool == BUTLER
 
 
 ## What to do with one output line (ANSI codes already stripped).
 ## {} prints it unchanged. Otherwise "label" and "pct" (0–100) move that
 ## bar and "end" finishes it; the line itself is folded into the bar unless
-## "print" is set. {"fold": true} alone just drops the line.
+## "print" is set. {"fold": true} alone just drops the line. {"text": …}
+## prints that text instead of the line ("err": true marks it as an error).
 func feed(line: String) -> Dictionary:
 	if tool == GODOT:
 		return _feed_godot(line)
 	if tool == STEAMCMD:
 		return _feed_steamcmd(line)
+	if tool == BUTLER:
+		return _feed_butler(line)
 	return {}
 
 
@@ -130,6 +144,32 @@ func _feed_steamcmd(line: String) -> Dictionary:
 		_scanning = false
 		return {"label": label, "pct": 100.0, "end": true, "print": true}
 	return {}
+
+
+func _feed_butler(line: String) -> Dictionary:
+	var trimmed := line.strip_edges()
+	if not trimmed.begins_with("{"):
+		if trimmed.begins_with("bailing out:"):
+			_bailing = true  # The JSON error line already said why.
+		return {"fold": true} if _bailing else {}
+	var data: Variant = JSON.parse_string(trimmed)
+	if not data is Dictionary:
+		return {}
+	var bar := bar_label if not bar_label.is_empty() else "Uploading"
+	match str(data.get("type", "")):
+		"progress":
+			var progress: Variant = data.get("progress")
+			if progress is float or progress is int:
+				return {"label": bar, "pct": clampf(float(progress) * 100.0, 0.0, 100.0)}
+			return {"fold": true}
+		"log":
+			if str(data.get("level", "")) == "debug":
+				return {"fold": true}
+			return {"text": str(data.get("message", "")).strip_edges(), "err": str(data.get("level", "")) == "error"}
+		"error":
+			# The message carries a Go stack trace after its first line.
+			return {"text": str(data.get("message", "")).get_slice("\n", 0).strip_edges(), "err": true}
+	return {"fold": true}  # result, prompts and other bookkeeping
 
 
 static func _task_label(task: String) -> String:

@@ -94,7 +94,7 @@ or a bug you want to fix), the following channels can be used:
   for bug reporting.
 - [Feature proposals](https://github.com/DannyDevSe/Godot-To-Steam/discussions):
   To propose a new feature start a new discussion [here](https://github.com/DannyDevSe/Godot-To-Steam/discussions/new/choose?category=ideas). Don't
-  hesitate to start by talking about your idea to make sure that it makes sense in Godot To Steam's context.
+  hesitate to start by talking about your idea to make sure that it makes sense in GodotPipe's context.
 
 Thanks for your interest in contributing!
 

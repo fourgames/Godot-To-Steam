@@ -1,8 +1,8 @@
-Godot To Steam
-Copyright (c) 2026 Four Games. All rights reserved.
+GodotPipe
+Copyright (c) 2026 Four Games. Licensed under the MIT License.
 Built with Godot Engine 4.7.2 (https://godotengine.org).
 
-Godot To Steam contains the Godot Engine and uses Godot editor and platform
+GodotPipe contains the Godot Engine and uses Godot editor and platform
 icons. Their licenses require the notices below to be distributed with every
 copy of the application. Keep this file next to the application.
 

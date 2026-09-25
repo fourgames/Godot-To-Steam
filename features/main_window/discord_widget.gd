@@ -48,7 +48,7 @@ func _on_widget_completed(result: int, code: int, _headers: PackedStringArray, b
 		widget_failed.emit(KnownIssues.http_result_text(result))
 		return
 	if code == 403:
-		widget_failed.emit("HTTP 403 – enable Server Widget in Discord's server settings")
+		widget_failed.emit("HTTP 403 — enable Server Widget in Discord's server settings")
 		return
 	if code != 200:
 		widget_failed.emit("HTTP %d" % code)

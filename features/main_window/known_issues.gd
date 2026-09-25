@@ -196,21 +196,21 @@ static func http_result_text(result: int) -> String:
 		HTTPRequest.RESULT_SUCCESS:
 			return "success"
 		HTTPRequest.RESULT_CANT_RESOLVE:
-			return "server name could not be resolved – no internet connection, or DNS is blocked"
+			return "server name could not be resolved — no internet connection, or DNS is blocked"
 		HTTPRequest.RESULT_CANT_CONNECT, HTTPRequest.RESULT_CONNECTION_ERROR:
-			return "could not connect – check your internet connection, VPN, proxy or firewall"
+			return "could not connect — check your internet connection, VPN, proxy or firewall"
 		HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR:
-			return "secure connection failed – check that the computer's date and time are correct, and that no proxy or antivirus intercepts HTTPS"
+			return "secure connection failed — check that the computer's date and time are correct, and that no proxy or antivirus intercepts HTTPS"
 		HTTPRequest.RESULT_NO_RESPONSE:
 			return "the server did not respond"
 		HTTPRequest.RESULT_TIMEOUT:
-			return "timed out – the connection is too slow or blocked"
+			return "timed out — the connection is too slow or blocked"
 		HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN, HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR:
-			return "the download could not be saved – free up disk space and check that the app's data folder is writable"
+			return "the download could not be saved — free up disk space and check that the app's data folder is writable"
 		HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED:
 			return "the answer was larger than expected"
 		HTTPRequest.RESULT_REDIRECT_LIMIT_REACHED:
 			return "too many redirects"
 		HTTPRequest.RESULT_CHUNKED_BODY_SIZE_MISMATCH, HTTPRequest.RESULT_BODY_DECOMPRESS_FAILED:
-			return "the download arrived damaged – try again"
+			return "the download arrived damaged — try again"
 	return "request failed (result %d)" % result

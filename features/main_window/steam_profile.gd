@@ -51,7 +51,7 @@ func fetch(username: String, steamcmd_path: String, force := false) -> void:
 	username = username.strip_edges()
 	var steam_id := find_steam_id(username, steamcmd_path)
 	if steam_id.is_empty():
-		profile_failed.emit.call_deferred(username, "SteamID not found in SteamCMD config – sign in once first")
+		profile_failed.emit.call_deferred(username, "SteamID not found in SteamCMD config — sign in once first")
 		return
 
 	if not force:

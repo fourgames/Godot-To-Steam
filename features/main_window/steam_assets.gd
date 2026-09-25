@@ -62,21 +62,12 @@ func _ready() -> void:
 	add_child(_search_http)
 
 
-var is_fetching: bool:
-	get:
-		return not _pending_app_id.is_empty()
-
-
 func cache_path(app_id: String) -> String:
 	return CACHE_DIR.path_join(app_id).path_join(CAPSULE_FILE)
 
 
 func stamp_path(app_id: String) -> String:
 	return CACHE_DIR.path_join(app_id).path_join(STAMP_FILE)
-
-
-func has_cached(app_id: String) -> bool:
-	return _texture_cache.has(app_id) or FileAccess.file_exists(cache_path(app_id))
 
 
 ## Delivers the header for [param app_id] through the signals. Cached copies

@@ -243,6 +243,13 @@ var _child_stdio: FileAccess
 ## True from the moment SteamCMD asked for a Steam Guard code until one was
 ## written to it. The login button turns into "Submit code" meanwhile.
 var _awaiting_guard_code := false
+## True while the running SteamCMD login takes a typed code although it is not
+## at a code prompt (a sign-in, or waiting for the mobile app): submitting one
+## restarts SteamCMD with it (see [method _submit_guard_code]).
+var _code_submittable := false
+## Code the next launch of the running SteamCMD passes with
+## +set_steam_guard_code; set right before that run is killed for a restart.
+var _guard_restart_code := ""
 ## Set when a Guard prompt was seen during the current child process, and
 ## when a code was written to it, so the failure hint can tell the two apart.
 var _guard_prompt_seen := false
@@ -452,7 +459,7 @@ func _ready() -> void:
 	%SteamPassword.focus_exited.connect(_persist_secrets)
 	%SteamSharedSecret.focus_exited.connect(_persist_secrets)
 	%SteamGuardCode.text_submitted.connect(func(_t: String) -> void:
-		if _awaiting_guard_code:
+		if _accepts_guard_code():
 			_submit_guard_code()
 		else:
 			_on_steam_login_pressed()
@@ -3334,7 +3341,7 @@ func _check_shared_secret() -> void:
 
 
 func _on_steam_login_pressed() -> void:
-	if _awaiting_guard_code:
+	if _accepts_guard_code():
 		_submit_guard_code()
 		return
 	if _is_busy:
@@ -3349,6 +3356,9 @@ func _on_steam_login_pressed() -> void:
 	var args := _steam_login_args()
 	args.append("+quit")
 	var typed_code: bool = not %SteamGuardCode.text.strip_edges().is_empty()
+	# The user is at the code field: a code typed while SteamCMD signs in is
+	# used right away instead of only on the next Sign in.
+	_allow_code_submit()
 	var code := await run_process(steamcmd, args)
 	if _cancel_requested:
 		%SteamStatusLabel.text = "Sign-in cancelled"
@@ -3458,12 +3468,39 @@ func _on_guard_prompt() -> void:
 	log_line("Enter the Steam Guard code and press Submit code.", COLOR_INFO)
 
 
-## Writes the typed Steam Guard code to the waiting SteamCMD process.
+## True while a typed Steam Guard code can go to the running SteamCMD, which
+## is when the login button reads "Submit code".
+func _accepts_guard_code() -> bool:
+	return _awaiting_guard_code or _code_submittable
+
+
+## Lets the running SteamCMD login take a typed code although it is not at a
+## code prompt: the login button becomes "Submit code" until the run ends.
+func _allow_code_submit() -> void:
+	_code_submittable = true
+	%SteamLoginButton.disabled = false
+	%SteamLoginButton.text = SUBMIT_CODE_TEXT
+
+
+## Hands the typed Steam Guard code to the running SteamCMD: written to it
+## when it is at a code prompt, otherwise (still signing in, or waiting for the
+## mobile app, where SteamCMD reads nothing) by restarting it with the code on
+## the command line, which skips the phone confirmation.
 func _submit_guard_code() -> void:
 	var code: String = %SteamGuardCode.text.strip_edges()
 	if code.is_empty():
 		_set_field_error(%SteamGuardCode, true)
 		%SteamGuardCode.grab_focus()
+		return
+	if not _awaiting_guard_code:
+		if _child_pid <= 0 or not OS.is_process_running(_child_pid):
+			return  # The run is ending; its result decides what comes next.
+		_guard_restart_code = code
+		log_line("Restarting SteamCMD with the Steam Guard code…", COLOR_INFO)
+		%SteamStatusLabel.text = "Checking Steam Guard code…"
+		_end_guard_wait()
+		%SteamLoginButton.disabled = true  # until the restarted run ends
+		_kill_child()
 		return
 	if not _write_child_stdin(code):
 		log_line("SteamCMD is no longer waiting for a code. Press Sign in to start again; the code in the field is sent along.", COLOR_ERR)
@@ -3484,13 +3521,18 @@ func _on_guard_wait() -> void:
 	_guard_wait_seen = true
 	_set_status_dot(%AccountDot, COLOR_WARN)
 	%SteamStatusLabel.text = "Approve in the Steam mobile app…"
-	log_line("Steam sent a confirmation to the Steam mobile app. Approve it there to continue, or press Stop, type a Steam Guard code and sign in again.", COLOR_INFO)
+	_allow_code_submit()
+	if not %SetupPage.visible:
+		_show_project(-1)  # Put the code field on screen.
+	log_line("Steam sent a confirmation to the Steam mobile app. Approve it there to continue, or type the Steam Guard code and press Submit code.", COLOR_INFO)
 
 
 ## An authenticated SteamCMD run just succeeded for the username in the field:
 ## whatever it took (cached session, password, code), SteamCMD holds a fresh
 ## session now. Restores the verified state a [method _session_lost] dropped.
 func _mark_login_verified() -> void:
+	if _guard_code_sent:
+		%SteamGuardCode.text = ""  # Used up; later runs use the cached session.
 	var user: String = %SteamUsername.text.strip_edges()
 	if user.is_empty() or (_login_verified and _login_verified_user == user):
 		return
@@ -3521,7 +3563,7 @@ func _session_lost() -> void:
 ## the next "Sign in" runs the full password + Steam Guard flow again. The
 ## password, shared secret and cached avatar files are left alone.
 func _on_steam_sign_out_pressed() -> void:
-	if _is_busy or _awaiting_guard_code:
+	if _is_busy or _accepts_guard_code():
 		return
 	log_step("Signing out of Steam")
 	var removed := 0
@@ -3553,6 +3595,7 @@ func _on_steam_sign_out_pressed() -> void:
 ## Restores the login button after a code was sent or the process ended.
 func _end_guard_wait() -> void:
 	_awaiting_guard_code = false
+	_code_submittable = false
 	%SteamLoginButton.text = LOGIN_BUTTON_TEXT
 	%SteamLoginButton.disabled = _is_busy
 
@@ -3966,8 +4009,12 @@ static func _steamcmd_launch(exe: String, args: PackedStringArray) -> Dictionary
 ## SteamCMD runs with its own HOME, see [method _steamcmd_launch].
 ## [param tool] (KnownIssues.GODOT, …) picks the known problems its output
 ## is checked against; SteamCMD is recognised by name.
-func run_process(exe: String, args: PackedStringArray, tool := "") -> int:
+## A Steam Guard code submitted while SteamCMD was not at a code prompt kills
+## the run and starts it again with the code (see [method _submit_guard_code]);
+## [param restarted] marks that second launch.
+func run_process(exe: String, args: PackedStringArray, tool := "", restarted := false) -> int:
 	var program := exe
+	var given_args := args
 	if tool.is_empty() and is_steamcmd_exe(program):
 		tool = KnownIssues.STEAMCMD
 	var launch := _steamcmd_launch(exe, args)
@@ -3990,7 +4037,7 @@ func run_process(exe: String, args: PackedStringArray, tool := "") -> int:
 	_child_pid = pid
 	_child_killed = false
 	_guard_prompt_seen = false
-	_guard_code_sent = false
+	_guard_code_sent = restarted
 	_guard_failure_seen = false
 	_password_prompt_seen = false
 	_password_sent = false
@@ -4020,9 +4067,17 @@ func run_process(exe: String, args: PackedStringArray, tool := "") -> int:
 	# Deferred log_out calls from the readers land on the next frame; wait so
 	# the exit line comes after the output it belongs to.
 	await get_tree().process_frame
-	if _awaiting_guard_code:
+	if _accepts_guard_code():
 		_end_guard_wait()
 	_progress = null
+
+	var restart_code := _guard_restart_code
+	_guard_restart_code = ""
+	if not restart_code.is_empty() and not _cancel_requested:
+		_finish_bar(false)
+		if _capturing:
+			_capture.clear()  # The killed run's output is incomplete.
+		return await run_process(program, _with_guard_code(given_args, restart_code), tool, true)
 
 	if _cancel_requested:
 		_finish_bar(false)
@@ -4308,6 +4363,22 @@ func run_process_capture(exe: String, args: PackedStringArray) -> Dictionary:
 	return {"code": code, "output": "\n".join(_capture)}
 
 
+## [param args] with +set_steam_guard_code [param code] in front of +login,
+## replacing a code that was already passed.
+static func _with_guard_code(args: PackedStringArray, code: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	var i := 0
+	while i < args.size():
+		if args[i] == "+set_steam_guard_code":
+			i += 2
+			continue
+		if args[i] == "+login":
+			out.append_array(["+set_steam_guard_code", code])
+		out.append(args[i])
+		i += 1
+	return out
+
+
 ## Hides the Steam Guard code in the echoed command line. The password is
 ## never on it (see [method _steam_login_args]).
 func _redact(args: PackedStringArray) -> PackedStringArray:
@@ -4436,7 +4507,7 @@ func _refresh_setup_state() -> void:
 
 	# The row text is owned by whoever knows the most (login handler, guard
 	# prompt); only the states nobody else describes set it here.
-	if _awaiting_guard_code:
+	if _accepts_guard_code():
 		_set_status_dot(%AccountDot, COLOR_WARN)
 	elif login_ok:
 		if not %SteamStatusLabel.text.begins_with("Signed in"):
@@ -5026,7 +5097,7 @@ func _set_busy(busy: bool) -> void:
 	%BuildPublishButton.tooltip_text = STOP_TOOLTIP if busy else "%s (%s)" % [BUILD_TOOLTIP, _shortcut_label("Enter")]
 	%BuildPublishButton.accessibility_name = %BuildPublishButton.tooltip_text
 	%BuildDescription.editable = not busy
-	%SteamLoginButton.disabled = busy and not _awaiting_guard_code
+	%SteamLoginButton.disabled = busy and not _accepts_guard_code()
 	%SteamSignOutButton.disabled = busy
 	_update_add_app_button()
 	%RemoveProjectButton.disabled = busy and not _fetching_depots

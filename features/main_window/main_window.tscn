@@ -409,7 +409,7 @@ theme_override_constants/separation = 8
 layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"SectionLabel"
-text = "1. SteamCMD"
+text = "SteamCMD"
 
 [node name="DownloadSteamCmdButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/SteamCmdSection/SteamCmdHeader" unique_id=1890382940]
 unique_name_in_owner = true
@@ -520,7 +520,7 @@ theme_override_constants/separation = 8
 layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"SectionLabel"
-text = "2. Steam account"
+text = "Steam account"
 
 [node name="SteamSignOutButton" type="Button" parent="Layout/Content/MainView/ScrollFrame/UpperScroll/ContentMargin/UpperLayout/SetupPage/AccountSection/AccountHeader" unique_id=889525284]
 unique_name_in_owner = true

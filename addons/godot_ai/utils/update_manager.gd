@@ -108,7 +108,7 @@ func check_for_updates() -> void:
 func start_install(preflight: Dictionary) -> void:
 	if is_install_in_flight():
 		install_state_changed.emit({
-			"button_text": "Update already in progress",
+			"status_text": "Update already in progress",
 			"button_disabled": true,
 		})
 		return
@@ -117,7 +117,8 @@ func start_install(preflight: Dictionary) -> void:
 		return
 	if not bool(preflight.get("ok", false)):
 		install_state_changed.emit({
-			"button_text": "Update blocked — resolve recovery state",
+			"install_in_flight": false,
+			"status_text": "Update blocked — resolve recovery state",
 			"button_disabled": false,
 		})
 		return
@@ -128,13 +129,18 @@ func start_install(preflight: Dictionary) -> void:
 		or not _directory_is_empty(directory)
 	):
 		install_state_changed.emit({
-			"button_text": "Update blocked — private download directory unavailable",
+			"install_in_flight": false,
+			"status_text": "Update blocked — private download directory unavailable",
 			"button_disabled": false,
 		})
 		return
 	_download_root = directory
 	_queue.assign([ASSET_NAME, MANIFEST_NAME, SIGNATURE_NAME])
-	install_state_changed.emit({"button_text": "Downloading…", "button_disabled": true})
+	install_state_changed.emit({
+		"install_in_flight": true,
+		"status_text": "Downloading…",
+		"button_disabled": true,
+	})
 	_download_next()
 
 
@@ -518,7 +524,10 @@ func _fail_download(reason: String) -> void:
 	_qualification.clear()
 	discard_downloads()
 	push_error("MCP | v4 update preparation failed: %s" % reason)
+	## The click-time lock and any quiesced client work are the plugin's to
+	## release, and it only does so when it hears the install is over.
 	install_state_changed.emit({
-		"button_text": "Update preparation failed",
+		"install_in_flight": false,
+		"status_text": "Update preparation failed",
 		"button_disabled": false,
 	})

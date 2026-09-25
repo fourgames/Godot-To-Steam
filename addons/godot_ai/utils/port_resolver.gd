@@ -9,8 +9,21 @@ extends RefCounted
 ## Canonical pid-file path. plugin.gd::SERVER_PID_FILE re-exports this so
 ## external readers and tests can use either name.
 const SERVER_PID_FILE := "user://godot_ai_server.pid"
+## Where a plugin-spawned server reports a failure that happens before it
+## publishes its capability record (`--startup-report`). Removed before every
+## spawn, so a report that exists afterwards belongs to that launch.
+const SERVER_STARTUP_REPORT := "user://godot_ai_server_startup.json"
 const WindowsPortReservation := preload("res://addons/godot_ai/utils/windows_port_reservation.gd")
+const LinuxProc := preload("res://addons/godot_ai/utils/linux_proc.gd")
+const SNAPSHOT_DIAGNOSTIC_STAGES := ["single", "pair", "first", "final"]
+const SNAPSHOT_DIAGNOSTIC_CATEGORIES := [
+	"invalid_pid", "shell_exit", "empty_output", "outer_size", "outer_json", "outer_shape",
+	"snapshot_size", "snapshot_json", "snapshot_shape", "collector_null", "row_shape",
+	"row_pid", "row_chain", "row_identity", "lineage_cycle",
+]
 static var _process_spawn_mutex := Mutex.new()
+
+enum PortOccupancy { UNKNOWN, FREE, OCCUPIED }
 
 
 ## Serialize plugin-owned subprocess creation across the brief process-global
@@ -24,6 +37,20 @@ static func unlock_process_spawn() -> void:
 	_process_spawn_mutex.unlock()
 
 
+## Linux can prove ownership through procfs inside minimal desktop sandboxes.
+## Query each launch so installing the missing tool makes Retry work.
+static func listener_tools_problem() -> String:
+	if OS.get_name() != "Linux" or LinuxProc.available():
+		return ""
+	var output: Array = []
+	var available := OS.execute("/bin/sh", ["-c",
+		"command -v lsof >/dev/null 2>&1 || command -v ss >/dev/null 2>&1"
+	], output, true)
+	if available == 0:
+		return ""
+	return "Cannot verify Linux listener ownership: /proc is unavailable and neither lsof nor ss is available on the editor's PATH. Make /proc accessible inside the editor environment, or install lsof or iproute2 there, then retry starting the server."
+
+
 static func can_bind_local_port(port: int) -> bool:
 	var server := TCPServer.new()
 	var err := server.listen(port, "127.0.0.1")
@@ -33,18 +60,11 @@ static func can_bind_local_port(port: int) -> bool:
 	return false
 
 
-## True when `port` is bound on 127.0.0.1. Probes via TCPServer first,
-## falls back to OS scraping. Callers that want per-scraper trace
-## counters should call `is_port_in_use_via_scrape` with a trace hook
-## after their own `can_bind_local_port` probe.
+## Windows permits a loopback bind beside a wildcard listener. Use the OS
+## listener table, and treat failed queries as unavailable rather than free.
 static func is_port_in_use(port: int) -> bool:
-	if can_bind_local_port(port):
-		## On POSIX, an IPv6 wildcard listener can coexist with a
-		## successful 127.0.0.1 bind probe. Confirm with lsof so startup
-		## sees the same listener set that shutdown/recovery would see.
-		if OS.get_name() != "Windows":
-			return is_port_in_use_via_scrape(port)
-		return false
+	if OS.get_name() == "Windows":
+		return windows_port_occupancy(port) != PortOccupancy.FREE
 	return is_port_in_use_via_scrape(port)
 
 
@@ -53,23 +73,16 @@ static func is_port_in_use(port: int) -> bool:
 ## a wrapping caller's startup trace sees a genuine PowerShell fallback
 ## as `powershell`, not as a silent extra second under `netstat`.
 static func is_port_in_use_via_scrape(port: int, trace: Callable = Callable()) -> bool:
+	if OS.get_name() == "Linux":
+		var linux := LinuxProc.listener_snapshot()
+		if linux.known:
+			return linux.listeners.has(port)
+		## A failed observation cannot prove that a port is free.
+		if not can_bind_local_port(port):
+			return true
 	var output: Array = []
 	if OS.get_name() == "Windows":
-		_trace(trace, "netstat")
-		var exit_code := OS.execute("netstat", ["-ano"], output, true)
-		if exit_code == 0 and output.size() > 0:
-			var stdout := str(output[0])
-			if parse_windows_netstat_listening(stdout, port):
-				return true
-			## A healthy dump with no listener row IS the answer — don't
-			## pay the ~1.2s powershell.exe spawn to confirm "not in use"
-			## (see find_all_pids_on_port for the cost rationale).
-			if windows_netstat_dump_parseable(stdout):
-				return false
-		## Fallback: netstat can be absent or unparseable on
-		## stripped/locale-odd Windows installs.
-		_trace(trace, "powershell")
-		return not find_listener_pids_windows(port).is_empty()
+		return windows_port_occupancy(port, windows_listener_snapshot(trace)) != PortOccupancy.FREE
 	_trace(trace, "lsof")
 	var exit_code := OS.execute("lsof", ["-ti:%d" % port, "-sTCP:LISTEN"], output, true)
 	if exit_code == 0 and output.size() > 0 and not output[0].strip_edges().is_empty():
@@ -84,8 +97,89 @@ static func is_port_in_use_via_scrape(port: int, trace: Callable = Callable()) -
 	)
 
 
+## One snapshot per selection operation avoids a subprocess for every candidate.
+## Unknown observations never prove a port free. This is not ownership evidence.
+static func windows_listener_snapshot(trace: Callable = Callable()) -> Dictionary:
+	var output: Array = []
+	_trace(trace, "netstat")
+	var code := OS.execute("netstat", ["-ano"], output, true)
+	var snapshot := windows_snapshot_from_netstat(code, output)
+	if snapshot.known:
+		return snapshot
+	_trace(trace, "powershell")
+	output.clear()
+	var script := "$ErrorActionPreference='Stop'; try { $listeners = @(Get-NetTCPConnection -ErrorAction Stop | Where-Object { $_.State -eq 'Listen' } | Select-Object LocalPort,OwningProcess); ConvertTo-Json -Compress -Depth 3 -InputObject @{ listeners = $listeners }; exit 0 } catch { exit 1 }"
+	code = execute_windows_powershell(script, output)
+	return windows_snapshot_from_powershell(code, output)
+
+
+static func windows_port_occupancy(port: int, snapshot: Dictionary = {}) -> PortOccupancy:
+	if snapshot.is_empty():
+		snapshot = windows_listener_snapshot()
+	if not snapshot.known:
+		return PortOccupancy.UNKNOWN
+	return PortOccupancy.OCCUPIED if snapshot.listeners.has(port) else PortOccupancy.FREE
+
+
+static func windows_snapshot_from_netstat(exit_code: int, output: Array) -> Dictionary:
+	var unknown := {"known": false, "listeners": {}}
+	if exit_code != 0 or output.is_empty():
+		return unknown
+	var listeners := {}
+	var saw_tcp := false
+	for line in str(output[0]).split("\n"):
+		var fields := split_on_whitespace(line.strip_edges())
+		if fields.is_empty() or fields[0].to_upper() != "TCP":
+			continue
+		if fields.size() < 5 or not fields[1].contains(":") or not fields[2].contains(":"):
+			return unknown
+		var port_text := fields[1].get_slice(":", fields[1].get_slice_count(":") - 1)
+		var remote_port_text := fields[2].get_slice(":", fields[2].get_slice_count(":") - 1)
+		var pid_text := fields[fields.size() - 1]
+		if not port_text.is_valid_int() or not remote_port_text.is_valid_int() or not pid_text.is_valid_int():
+			return unknown
+		var port := int(port_text)
+		var pid := int(pid_text)
+		if port < 1 or port > 65535 or pid < 0 or pid > 4294967295 or int(remote_port_text) < 0 or int(remote_port_text) > 65535:
+			return unknown
+		saw_tcp = true
+		## Windows localizes the state column, but listeners keep a wildcard foreign port.
+		if fields[2].ends_with(":0"):
+			_record_windows_listener(listeners, port, pid)
+	return {"known": true, "listeners": listeners} if saw_tcp else unknown
+
+
+static func windows_snapshot_from_powershell(exit_code: int, output: Array) -> Dictionary:
+	var unknown := {"known": false, "listeners": {}}
+	if exit_code != 0 or output.is_empty():
+		return unknown
+	var parsed: Variant = JSON.parse_string(str(output[0]))
+	if not (parsed is Dictionary) or not (parsed.get("listeners") is Array):
+		return unknown
+	var listeners := {}
+	for row in parsed.listeners:
+		if not (row is Dictionary):
+			return unknown
+		var port: Variant = row.get("LocalPort")
+		var pid: Variant = row.get("OwningProcess")
+		if not (port is int or port is float) or not is_finite(float(port)) or float(port) != floor(float(port)) or port < 1 or port > 65535:
+			return unknown
+		if not (pid is int or pid is float) or not is_finite(float(pid)) or float(pid) != floor(float(pid)) or pid < 0 or pid > 4294967295:
+			return unknown
+		_record_windows_listener(listeners, int(port), int(pid))
+	return {"known": true, "listeners": listeners}
+
+
+static func _record_windows_listener(listeners: Dictionary, port: int, pid: int) -> void:
+	if not listeners.has(port):
+		listeners[port] = []
+	## PID 0 still occupies the port, but cannot identify a process we may stop.
+	if pid > 0 and not listeners[port].has(pid):
+		listeners[port].append(pid)
+
+
 ## Return the PID currently listening on the given TCP port, or 0 if
-## the port is free. Thin convenience wrapper around `find_all_pids_on_port`
+## no positive listener PID could be observed. Thin wrapper around `find_all_pids_on_port`
 ## — the per-OS scraping logic lives in one place.
 static func find_pid_on_port(port: int, trace: Callable = Callable()) -> int:
 	var pids := find_all_pids_on_port(port, trace)
@@ -101,28 +195,20 @@ static func find_pid_on_port(port: int, trace: Callable = Callable()) -> int:
 ## can keep its cold-start trace accurate. The Windows path may fall
 ## through netstat → PowerShell, and a wrapping caller can't see which
 ## scraper actually ran without the hook.
-static func find_all_pids_on_port(port: int, trace: Callable = Callable()) -> Array[int]:
+static func find_all_pids_on_port(port: int, trace: Callable = Callable(), snapshot: Dictionary = {}) -> Array[int]:
 	if OS.get_name() == "Windows":
-		var output: Array = []
-		_trace(trace, "netstat")
-		var exit_code := OS.execute("netstat", ["-ano"], output, true)
-		if exit_code == 0 and not output.is_empty():
-			var stdout := str(output[0])
-			var netstat_pids := parse_windows_netstat_pids(stdout, port)
-			if not netstat_pids.is_empty():
-				return netstat_pids
-			## An empty per-port parse from a healthy dump IS the answer
-			## ("no listener"). Confirming it through the PowerShell probe
-			## costs a powershell.exe spawn (~1.2s measured) against ~30ms
-			## for the netstat scrape — two such confirmations dominated a
-			## ~7s Windows startup walk. Only fall through when the dump
-			## itself is unusable (netstat absent, or so format-odd that
-			## zero TCP rows parse).
-			if windows_netstat_dump_parseable(stdout):
-				var no_listeners: Array[int] = []
-				return no_listeners
-		_trace(trace, "powershell")
-		return find_listener_pids_windows(port)
+		if snapshot.is_empty():
+			snapshot = windows_listener_snapshot(trace)
+		var pids: Array[int] = []
+		if snapshot.known:
+			pids.assign(snapshot.listeners.get(port, []))
+		return pids
+	if OS.get_name() == "Linux":
+		var linux := LinuxProc.listener_snapshot()
+		if linux.known:
+			var linux_pids := LinuxProc.listener_pids(port, linux)
+			if not linux_pids.is_empty() or not linux.listeners.has(port):
+				return linux_pids
 	var output: Array = []
 	_trace(trace, "lsof")
 	var exit_code := OS.execute("lsof", ["-ti:%d" % port, "-sTCP:LISTEN"], output, true)
@@ -146,17 +232,6 @@ static func _trace(trace: Callable, counter: String) -> void:
 		trace.call(counter)
 
 
-static func find_listener_pids_windows(port: int) -> Array[int]:
-	var script := (
-		"Get-NetTCPConnection -LocalPort %d -State Listen "
-		+ "-ErrorAction SilentlyContinue | "
-		+ "Select-Object -ExpandProperty OwningProcess"
-	) % port
-	var output: Array = []
-	var exit_code := execute_windows_powershell(script, output)
-	return windows_listener_pids_from_execute_result(exit_code, output)
-
-
 static func execute_windows_powershell(script: String, output: Array) -> int:
 	var args := ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]
 	for exe in windows_powershell_candidates():
@@ -169,6 +244,14 @@ static func execute_windows_powershell(script: String, output: Array) -> int:
 
 static func windows_powershell_candidates() -> Array[String]:
 	var candidates: Array[String] = []
+	## Prefer an already-installed PowerShell 7 at its fixed machine path.
+	## Missing or failing installations retain every existing fallback below.
+	for variable in ["ProgramW6432", "ProgramFiles"]:
+		var program_files := OS.get_environment(variable).replace("\\", "/").trim_suffix("/")
+		if not program_files.is_empty():
+			var pwsh := program_files.path_join("PowerShell/7/pwsh.exe")
+			if FileAccess.file_exists(pwsh) and not candidates.has(pwsh):
+				candidates.append(pwsh)
 	var system_root := OS.get_environment("SystemRoot")
 	if system_root.is_empty():
 		system_root = "C:/Windows"
@@ -177,17 +260,6 @@ static func windows_powershell_candidates() -> Array[String]:
 	candidates.append("powershell.exe")
 	candidates.append("pwsh.exe")
 	return candidates
-
-
-static func windows_listener_pids_from_execute_result(exit_code: int, output: Array) -> Array[int]:
-	var empty: Array[int] = []
-	if exit_code == 0 and not output.is_empty():
-		return parse_pid_lines(str(output[0]))
-	return empty
-
-
-static func windows_listener_execute_result_in_use(exit_code: int, output: Array) -> bool:
-	return not windows_listener_pids_from_execute_result(exit_code, output).is_empty()
 
 
 ## Pure parser for `lsof -ti` output — newline-separated decimal PIDs.
@@ -231,7 +303,7 @@ static func parse_pid_lines(raw: String) -> Array[int]:
 
 
 ## Parse a Windows `netstat -ano` dump and return PIDs of rows whose
-## local address ends with `:port` AND state is `LISTENING`. Substring
+## local address ends with `:port` and foreign port is zero. Substring
 ## matching the whole dump is wrong: a remote address containing
 ## `:port` would false-positive against an unrelated ESTABLISHED row.
 static func parse_windows_netstat_pid(stdout: String, port: int) -> int:
@@ -240,54 +312,15 @@ static func parse_windows_netstat_pid(stdout: String, port: int) -> int:
 
 
 static func parse_windows_netstat_pids(stdout: String, port: int) -> Array[int]:
+	var snapshot := windows_snapshot_from_netstat(0, [stdout])
 	var pids: Array[int] = []
-	var port_suffix := ":%d" % port
-	for line in stdout.split("\n"):
-		var s := line.strip_edges()
-		if s.is_empty():
-			continue
-		var fields := split_on_whitespace(s)
-		if fields.size() < 5:  # proto, local, remote, state, pid
-			continue
-		## Locale-independent listener signal (mirrors script/_dev_env.py):
-		## the state column is localized ("LISTENING"/"ABHÖREN"/"ÉCOUTE"...),
-		## but a listener's FOREIGN address is always the wildcard ":0".
-		if not fields[2].ends_with(":0"):
-			continue
-		if not fields[1].ends_with(port_suffix):
-			continue
-		var pid_str := fields[fields.size() - 1]
-		if pid_str.is_valid_int():
-			var pid := int(pid_str)
-			if pid > 0 and not pids.has(pid):
-				pids.append(pid)
+	if snapshot.known:
+		pids.assign(snapshot.listeners.get(port, []))
 	return pids
 
 
-static func parse_windows_netstat_listening(stdout: String, port: int) -> bool:
-	return parse_windows_netstat_pid(stdout, port) > 0
-
-
-## True when `stdout` looks like a healthy `netstat -ano` dump: at least
-## one row parses as a TCP connection (proto column literally "TCP", an
-## address containing ":", an integer PID in the last column). Locale-
-## independent — protocol names are never localized, unlike the state
-## column. Gates whether an empty per-port parse can be trusted as "no
-## listener": a live Windows host always carries TCP rows (svchost/RPC
-## listen on 135 at minimum), so a dump with zero parseable rows means
-## netstat itself is absent/broken and the PowerShell fallback must run.
 static func windows_netstat_dump_parseable(stdout: String) -> bool:
-	for line in stdout.split("\n"):
-		var fields := split_on_whitespace(line.strip_edges())
-		if fields.size() < 5:
-			continue
-		if fields[0].to_upper() != "TCP":
-			continue
-		if fields[1].find(":") < 0:
-			continue
-		if fields[fields.size() - 1].is_valid_int():
-			return true
-	return false
+	return bool(windows_snapshot_from_netstat(0, [stdout]).known)
 
 
 ## `String.split(" ", false)` only splits on single spaces; netstat
@@ -332,9 +365,13 @@ static func clear_pid_file() -> void:
 ## uvx launcher lingers as a zombie forever and `kill -0` would block
 ## the spawn-failure branch in check_server_health from firing. Use
 ## `ps -o stat=` instead. State codes: R/S/D/I/T (live), Z (zombie). #172.
-static func pid_alive(pid: int) -> bool:
+static func pid_alive(pid: int, snapshot: Variant = null) -> bool:
 	if pid <= 0:
 		return false
+	if snapshot != null:
+		return not _process_snapshot_row(snapshot, pid).is_empty()
+	if OS.get_name() == "Linux":
+		return LinuxProc.is_alive(LinuxProc.process_stat(pid))
 	if OS.get_name() == "Windows":
 		var output: Array = []
 		var exit_code := OS.execute("tasklist", ["/FI", "PID eq %d" % pid, "/NH", "/FO", "CSV"], output, true)
@@ -355,9 +392,183 @@ static func pid_alive(pid: int) -> bool:
 ## Read-only process identity helpers.  Lifecycle authority is granted only
 ## after capturing a fingerprint and every later stop re-reads the fingerprint
 ## before acting, so PID reuse fails closed.
-static func process_commandline(pid: int) -> String:
+## One Windows query captures the target and at most fifteen ancestors. The
+## dictionary belongs to one proof boundary, never a cache: callers must take
+## a fresh snapshot when closing the capture window or authorizing a kill.
+## Linux captures the same bounded ancestry using procfs; macOS keeps ps.
+## The process enumeration stays inside PowerShell; only the bounded target
+## ancestry crosses back into Godot, without logging command-line metadata.
+static func capture_process_snapshot(pid: int, diagnostics: Variant = null) -> Variant:
+	if OS.get_name() == "Linux":
+		return LinuxProc.process_snapshot(pid)
+	if OS.get_name() != "Windows":
+		return null
+	if pid <= 1:
+		return _snapshot_failure(diagnostics, "invalid_pid", "single")
+	var script := _windows_process_snapshot_script(pid)
+	var output: Array = []
+	var began := Time.get_ticks_msec()
+	var code := execute_windows_powershell(script, output)
+	if code != 0 or output.is_empty():
+		return _snapshot_failure(
+			diagnostics, "shell_exit" if code != 0 else "empty_output",
+			"single", -1, Time.get_ticks_msec() - began
+		)
+	return parse_process_snapshot(str(output[0]), pid, diagnostics)
+
+
+static func _windows_process_snapshot_script(pid: int) -> String:
+	return (
+		"$rows = @(); $current = %d; $seen = @{}; $capture_failed = $false; "
+		+ "$processes = @{}; try { Get-CimInstance Win32_Process -ErrorAction Stop | "
+		+ "ForEach-Object { $processes[[int]$_.ProcessId] = $_ } } catch {}; "
+		+ "for ($depth = 0; $depth -lt 16 -and $current -gt 1; $depth++) { "
+		+ "if ($seen.ContainsKey($current)) { break }; $seen[$current] = $true; "
+		+ "$p = $processes[$current]; "
+		+ "if ($null -eq $p) { "
+		+ "try { $identity = [string](Get-Process -Id $current -ErrorAction Stop).StartTime.ToFileTimeUtc(); "
+		+ "$rows += @{pid=$current;parent_pid=0;identity=$identity;commandline=''} } catch { if ($_.CategoryInfo.Category -ne 'ObjectNotFound') { $capture_failed = $true } }; break }; "
+		+ "$rows += @{pid=[int]$p.ProcessId;parent_pid=[int]$p.ParentProcessId; "
+		+ "identity=([string]$p.CreationDate + '|' + [string]$p.CommandLine);commandline=[string]$p.CommandLine}; "
+		+ "$current = [int]$p.ParentProcessId }; "
+		+ "if ($capture_failed) { 'null' } else { ConvertTo-Json -InputObject @($rows) -Compress -Depth 3 }"
+	) % pid
+
+
+## Independent CIM maps in separate scriptblock scopes are
+## captured within one shell invocation. No snapshot crosses a grant call.
+static func _capture_windows_process_snapshot_pair(pid: int, diagnostics: Variant = null) -> Array:
+	var query := _windows_process_snapshot_script(pid)
+	var script := (
+		"$first = & { %s }; $final = & { %s }; "
+		+ "ConvertTo-Json -InputObject @([string]$first,[string]$final) -Compress"
+	) % [query, query]
+	var output: Array = []
+	var began := Time.get_ticks_msec()
+	var code := execute_windows_powershell(script, output)
+	if code != 0 or output.is_empty():
+		_snapshot_failure(
+			diagnostics, "shell_exit" if code != 0 else "empty_output",
+			"pair", -1, Time.get_ticks_msec() - began
+		)
+		return [{"capture_error": true}, {"capture_error": true}]
+	return _parse_process_snapshot_pair(str(output[0]), pid, diagnostics)
+
+
+static func _parse_process_snapshot_pair(
+	raw: String, pid: int, diagnostics: Variant = null
+) -> Array:
+	if raw.length() > 4 * 1024 * 1024 + 16:
+		_snapshot_failure(diagnostics, "outer_size", "pair")
+		return [{"capture_error": true}, {"capture_error": true}]
+	var json := JSON.new()
+	if json.parse(raw) != OK:
+		_snapshot_failure(diagnostics, "outer_json", "pair")
+		return [{"capture_error": true}, {"capture_error": true}]
+	var pair: Variant = json.data
+	if not (pair is Array) or pair.size() != 2 or not (pair[0] is String and pair[1] is String):
+		_snapshot_failure(diagnostics, "outer_shape", "pair")
+		return [{"capture_error": true}, {"capture_error": true}]
+	return [
+		parse_process_snapshot(pair[0], pid, diagnostics, "first"),
+		parse_process_snapshot(pair[1], pid, diagnostics, "final"),
+	]
+
+
+static func parse_process_snapshot(
+	raw: String, expected_pid: int, diagnostics: Variant = null, stage := "single"
+) -> Dictionary:
+	if raw.length() > 1024 * 1024:
+		return _snapshot_failure(diagnostics, "snapshot_size", stage, -1)
+	var json := JSON.new()
+	if json.parse(raw) != OK:
+		return _snapshot_failure(diagnostics, "snapshot_json", stage, -1)
+	var rows: Variant = json.data
+	if not (rows is Array) or rows.size() > 16:
+		return _snapshot_failure(diagnostics, "collector_null" if rows == null else "snapshot_shape", stage)
+	var snapshot := {}
+	var next_pid := expected_pid
+	for row in rows:
+		if not (row is Dictionary):
+			return _snapshot_failure(diagnostics, "row_shape", stage, snapshot.size())
+		var value: Variant = row.get("pid")
+		if (
+			not (value is int or value is float) or not is_finite(float(value))
+			or float(value) <= 1.0 or float(value) > 4294967295.0
+			or float(value) != float(int(value))
+		):
+			return _snapshot_failure(diagnostics, "row_pid", stage, snapshot.size())
+		var pid := int(value)
+		if pid <= 1 or pid != next_pid or snapshot.has(pid):
+			return _snapshot_failure(diagnostics, "row_chain", stage, snapshot.size())
+		snapshot[pid] = row
+		if _process_snapshot_row(snapshot, pid).is_empty():
+			return _snapshot_failure(diagnostics, "row_identity", stage, snapshot.size() - 1)
+		next_pid = int(row.parent_pid)
+		if snapshot.has(next_pid):
+			return _snapshot_failure(diagnostics, "lineage_cycle", stage, snapshot.size() - 1)
+	return snapshot
+
+
+## Diagnostics never carry proof rows, command lines, or shell output. The
+## caller owns this sink: at most eight distinct failures, with bounded counts.
+## Snapshots and authority remain unchanged.
+static func _snapshot_failure(
+	diagnostics: Variant, category: String, stage: String, depth := -1, elapsed_ms := -1
+) -> Dictionary:
+	stage = stage if stage in SNAPSHOT_DIAGNOSTIC_STAGES else "unknown"
+	category = category if category in SNAPSHOT_DIAGNOSTIC_CATEGORIES else "unknown"
+	if diagnostics is Array:
+		for item in diagnostics:
+			if item.category == category and item.stage == stage and item.depth == depth:
+				item.count = mini(int(item.count) + 1, 10000)
+				return {"capture_error": true}
+		if diagnostics.size() < 8:
+			diagnostics.append({
+				"category": category, "stage": stage, "depth": clampi(depth, -1, 16),
+				"elapsed_ms": clampi(elapsed_ms, -1, 600000), "count": 1,
+			})
+	return {"capture_error": true}
+
+
+
+## An unavailable capture is not evidence that its PID has exited.
+static func capture_failed(snapshot: Variant) -> bool:
+	return snapshot is Dictionary and bool(snapshot.get("capture_error", false))
+
+
+static func _process_snapshot_row(snapshot: Variant, pid: int) -> Dictionary:
+	if not (snapshot is Dictionary) or capture_failed(snapshot) or pid <= 1:
+		return {}
+	var row: Variant = snapshot.get(pid)
+	if not (row is Dictionary) or row.size() != 4:
+		return {}
+	var parent: Variant = row.get("parent_pid")
+	if (
+		row.get("pid") != pid
+		or not (parent is int or parent is float)
+		or not is_finite(float(parent)) or float(parent) < 0.0 or float(parent) > 4294967295.0
+		or float(parent) != float(int(parent))
+		or not (row.get("identity") is String) or str(row.identity).strip_edges().is_empty()
+		or not (row.get("commandline") is String)
+	):
+		return {}
+	var identity := str(row.identity)
+	var commandline := str(row.commandline)
+	var separator := identity.find("|")
+	if separator >= 0:
+		if separator == 0 or identity.substr(separator + 1) != commandline:
+			return {}
+	elif not identity.is_valid_int() or not commandline.is_empty() or int(parent) != 0:
+		return {}
+	return row
+
+
+static func process_commandline(pid: int, snapshot: Variant = null) -> String:
 	if pid <= 1:
 		return ""
+	if snapshot != null:
+		return str(_process_snapshot_row(snapshot, pid).get("commandline", ""))
 	if OS.get_name() == "Windows":
 		var output: Array = []
 		var script := (
@@ -367,6 +578,8 @@ static func process_commandline(pid: int) -> String:
 		if execute_windows_powershell(script, output) != 0 or output.is_empty():
 			return ""
 		return str(output[0]).strip_edges()
+	if OS.get_name() == "Linux":
+		return LinuxProc.commandline(pid)
 	var proc_path := "/proc/%d/cmdline" % pid
 	if FileAccess.file_exists(proc_path):
 		var file := FileAccess.open(proc_path, FileAccess.READ)
@@ -390,9 +603,13 @@ static func process_commandline(pid: int) -> String:
 	return str(output[0]).strip_edges() if not output.is_empty() else ""
 
 
-static func process_parent(pid: int) -> int:
+static func process_parent(pid: int, snapshot: Variant = null) -> int:
 	if pid <= 1:
 		return 0
+	if snapshot != null:
+		return int(_process_snapshot_row(snapshot, pid).get("parent_pid", 0))
+	if OS.get_name() == "Linux":
+		return int(LinuxProc.process_stat(pid).get("parent_pid", 0))
 	var output: Array = []
 	if OS.get_name() == "Windows":
 		var script := (
@@ -408,14 +625,18 @@ static func process_parent(pid: int) -> int:
 	return int(raw) if raw.is_valid_int() else 0
 
 
-static func process_descends_from(pid: int, ancestor_pid: int) -> bool:
+static func process_descends_from(pid: int, ancestor_pid: int, snapshot: Variant = null) -> bool:
 	if pid <= 1 or ancestor_pid <= 1:
+		return false
+	if snapshot != null and _process_snapshot_row(snapshot, pid).is_empty():
 		return false
 	var current := pid
 	for _depth in range(16):
+		if snapshot != null and _process_snapshot_row(snapshot, current).is_empty():
+			return false
 		if current == ancestor_pid:
 			return true
-		var parent := process_parent(current)
+		var parent := process_parent(current, snapshot)
 		if parent <= 1 or parent == current:
 			return false
 		current = parent
@@ -428,32 +649,39 @@ static func commandline_is_godot_ai_server(commandline: String) -> bool:
 	var lower := commandline.to_lower()
 	var expression := RegEx.new()
 	var brand_search := lower
-	if expression.compile("--pid-file(?:=|\\s+)\\S+") == OK:
-		brand_search = expression.sub(lower, "--pid-file ", true)
+	## Paths we choose ourselves must not satisfy the brand: strip the pid-file
+	## and startup-report values (they live under user:// and carry our name)
+	## before searching for it.
+	if expression.compile("--(pid-file|startup-report)(?:=|\\s+)\\S+") == OK:
+		brand_search = expression.sub(lower, "--$1 ", true)
 	var branded := brand_search.contains("godot-ai") or brand_search.contains("godot_ai")
 	return branded and (lower.contains("--pid-file") or lower.contains("--transport"))
 
 
-static func pid_cmdline_is_godot_ai(pid: int) -> bool:
+static func pid_cmdline_is_godot_ai(pid: int, snapshot: Variant = null) -> bool:
 	var current := pid
 	for _depth in range(5):
 		if current <= 1:
 			return false
-		if commandline_is_godot_ai_server(process_commandline(current)):
+		if commandline_is_godot_ai_server(process_commandline(current, snapshot)):
 			return true
-		current = process_parent(current)
+		current = process_parent(current, snapshot)
 	return false
 
 
-static func process_fingerprint(pid: int) -> String:
-	if not pid_alive(pid):
+static func process_fingerprint(pid: int, snapshot: Variant = null) -> String:
+	if snapshot == null and OS.get_name() == "Linux":
+		snapshot = capture_process_snapshot(pid)
+	if not pid_alive(pid, snapshot):
 		return ""
 	var output: Array = []
 	var identity := ""
-	if OS.get_name() == "Windows":
+	if snapshot != null:
+		identity = str(_process_snapshot_row(snapshot, pid).get("identity", "")).strip_edges()
+	elif OS.get_name() == "Windows":
 		var script := (
 			"Get-CimInstance Win32_Process -Filter 'ProcessId = %d' | "
-			+ "ForEach-Object { \"$($_.CreationDate)|$($_.CommandLine)\" }"
+			+ "ForEach-Object { [string]$_.CreationDate + '|' + [string]$_.CommandLine }"
 		) % pid
 		if execute_windows_powershell(script, output) == 0 and not output.is_empty():
 			identity = str(output[0]).strip_edges()
@@ -484,19 +712,40 @@ static func process_fingerprint(pid: int) -> String:
 ## Capture the process identity that a later destructive call must present.
 ## A PID or command-line brand alone is never kill authority: either can refer
 ## to a different process by the time a worker reaches the effect boundary.
-static func capture_process_kill_grant(pid: int, require_brand := false) -> Dictionary:
-	if pid <= 1 or pid == OS.get_process_id() or not pid_alive(pid):
+## `diagnostics`, when given, receives one word naming the check that
+## refused the grant. It costs no extra probe and never changes the result.
+static func capture_process_kill_grant(
+	pid: int, require_brand := false, diagnostics: Array = [], snapshot_diagnostics: Variant = null
+) -> Dictionary:
+	if pid <= 1 or pid == OS.get_process_id():
+		diagnostics.append("invalid_pid")
 		return {}
-	if require_brand and not pid_cmdline_is_godot_ai(pid):
+	var pair: Array = _capture_windows_process_snapshot_pair(pid, snapshot_diagnostics) if OS.get_name() == "Windows" else []
+	var first: Variant = pair[0] if not pair.is_empty() else capture_process_snapshot(pid)
+	if capture_failed(first):
+		diagnostics.append("identity_unavailable")
 		return {}
-	var fingerprint := process_fingerprint(pid)
+	if not pid_alive(pid, first):
+		diagnostics.append("not_alive")
+		return {}
+	if require_brand and not pid_cmdline_is_godot_ai(pid, first):
+		diagnostics.append("unbranded")
+		return {}
+	var fingerprint := process_fingerprint(pid, first)
 	if fingerprint.is_empty():
+		diagnostics.append("fingerprint_unavailable")
 		return {}
 	## Close the capture window: both identity and optional lineage/brand must
-	## still describe the same process after the fingerprint read.
-	if process_fingerprint(pid) != fingerprint:
+	## still describe the same process in the independently collected final snapshot.
+	var final: Variant = pair[1] if not pair.is_empty() else capture_process_snapshot(pid)
+	if capture_failed(final):
+		diagnostics.append("identity_unavailable")
 		return {}
-	if require_brand and not pid_cmdline_is_godot_ai(pid):
+	if process_fingerprint(pid, final) != fingerprint:
+		diagnostics.append("fingerprint_changed")
+		return {}
+	if require_brand and not pid_cmdline_is_godot_ai(pid, final):
+		diagnostics.append("brand_changed")
 		return {}
 	return {"pid": pid, "fingerprint": fingerprint}
 
@@ -514,13 +763,12 @@ static func kill_exact_processes(
 			continue
 		var pid := int(grant.get("pid", 0))
 		var fingerprint := str(grant.get("fingerprint", ""))
+		if pid <= 1 or pid == OS.get_process_id() or seen.has(pid) or fingerprint.is_empty():
+			continue
+		var snapshot: Variant = capture_process_snapshot(pid)
 		if (
-			pid <= 1
-			or pid == OS.get_process_id()
-			or seen.has(pid)
-			or fingerprint.is_empty()
-			or process_fingerprint(pid) != fingerprint
-			or (require_brand and not pid_cmdline_is_godot_ai(pid))
+			process_fingerprint(pid, snapshot) != fingerprint
+			or (require_brand and not pid_cmdline_is_godot_ai(pid, snapshot))
 		):
 			continue
 		seen.append(pid)
@@ -539,13 +787,17 @@ static func kill_exact_processes(
 
 ## Poll until the given port is no longer bound, or the timeout elapses.
 ## Used after `OS.kill` so we don't race the port-in-use check on rebind.
-static func wait_for_port_free(port: int, timeout_s: float) -> void:
+static func wait_for_port_free(port: int, timeout_s: float) -> PortOccupancy:
 	var deadline := Time.get_ticks_msec() + int(timeout_s * 1000.0)
-	while is_port_in_use(port):
+	while true:
+		var occupancy := windows_port_occupancy(port) if OS.get_name() == "Windows" else (PortOccupancy.OCCUPIED if is_port_in_use(port) else PortOccupancy.FREE)
+		if occupancy != PortOccupancy.OCCUPIED:
+			return occupancy
 		if Time.get_ticks_msec() >= deadline:
 			push_warning("MCP | port %d still in use after %.1fs — proceeding anyway" % [port, timeout_s])
-			return
+			return occupancy
 		OS.delay_msec(100)
+	return PortOccupancy.UNKNOWN
 
 
 ## Choose a non-Windows-reserved WS port. Returns `configured` when free;

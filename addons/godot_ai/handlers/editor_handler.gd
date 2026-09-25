@@ -500,7 +500,7 @@ func _take_screenshot_impl(params: Dictionary) -> Dictionary:
 					"viewport_2d",
 					"Captured an empty image from the 2D viewport. The 2D viewport produced no output — typically headless mode or the 2D viewport has not drawn a frame yet."
 				)
-			return _finalize_image(image_2d, "viewport_2d", max_resolution)
+			return _finalize_image(image_2d, "viewport_2d", max_resolution, viewport.use_hdr_2d)
 		_:
 			return ErrorCodes.make(ErrorCodes.VALUE_OUT_OF_RANGE, "Invalid source '%s' — use 'viewport', 'viewport_2d', 'cinematic', or 'game'" % source)
 
@@ -848,9 +848,9 @@ func _find_current_camera_3d(root: Node) -> Camera3D:
 	return first
 
 
-func _finalize_image(image: Image, source: String, max_resolution: int) -> Dictionary:
+func _finalize_image(image: Image, source: String, max_resolution: int, use_hdr_2d := false) -> Dictionary:
 	## Shared with the game-process copy in runtime/game_helper.gd (#716).
-	var encoded := McpScreenshotEncode.downscale_and_encode(image, max_resolution)
+	var encoded := McpScreenshotEncode.downscale_and_encode(image, max_resolution, use_hdr_2d)
 	return {
 		"data": {
 			"source": source,
@@ -948,12 +948,15 @@ func _clear_debugger_error_trees() -> int:
 
 
 func reload_plugin(_params: Dictionary) -> Dictionary:
+	var work := PluginReload.reserve_reload()
+	if work == 0:
+		return ErrorCodes.make(ErrorCodes.EDITOR_NOT_READY, "A plugin reload is already pending.")
 	_log_buffer.log("reload_plugin requested, reloading next frame")
 	## Persist a pending plugin_reload telemetry event *before* the
 	## disable kills the live WebSocket. The re-enabled plugin's
 	## _enter_tree flushes via `_telemetry.flush_pending_plugin_reload()`.
 	Telemetry.record_pending_plugin_reload("mcp_tool")
-	_do_reload_plugin.call_deferred(ScriptWork.begin("reload_plugin"))
+	_do_reload_plugin.call_deferred(work)
 	return {"data": {"status": "reloading", "message": "Plugin reload initiated"}}
 
 

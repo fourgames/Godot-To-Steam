@@ -24,6 +24,7 @@ extends VBoxContainer
 const ServerStateScript := preload("res://addons/godot_ai/utils/mcp_server_state.gd")
 const ClientRefreshStateScript := preload("res://addons/godot_ai/utils/mcp_client_refresh_state.gd")
 const Client := preload("res://addons/godot_ai/clients/_base.gd")
+const PortResolver := preload("res://addons/godot_ai/utils/port_resolver.gd")
 const ClientConfigurator := preload("res://addons/godot_ai/client_configurator.gd")
 const ClientRegistry := preload("res://addons/godot_ai/clients/_registry.gd")
 const ToolCatalog := preload("res://addons/godot_ai/tool_catalog.gd")
@@ -54,6 +55,7 @@ static var COLOR_AMBER := Color(1.0, 0.75, 0.25)
 
 signal update_requested
 signal client_action_requested(client_id: String, action: String)
+signal client_action_cancel_requested(client_id: String)
 signal client_status_refresh_requested(client_ids: Array[String], force: bool)
 signal status_snapshot_requested
 signal live_server_probe_requested(port: int)
@@ -157,7 +159,7 @@ var _drift_label: Label
 ## tests/unit/test_editor_focus_refocus.py locates the notification handler
 ## by first occurrence of that token.)
 var _uv_recheck_pending := false
-## Handles for the Setup section's "Server" row. `_update_status` keeps
+## Handles for the Setup section's "Server" row. `_update_status_label` keeps
 ## the label text/color in sync with `McpConnection.server_version` so the
 ## dock reports the TRUE running server version, not the plugin's
 ## expected version. See #174 follow-up — a plugin upgrade via self-
@@ -165,7 +167,7 @@ var _uv_recheck_pending := false
 ## (foreign-port branch never sets `_server_pid`, so `_stop_server`
 ## can't kill it); the line has to show the mismatch honestly.
 var _setup_server_label: Label
-## Last rendered server-version string. `_update_status` runs every
+## Last rendered server-version string. `_update_status_label` runs every
 ## frame; early-outs text repaint when nothing changed. Empty means
 ## "no line rendered yet" (dev-checkout branch doesn't render a
 ## user-mode Server line).
@@ -248,8 +250,18 @@ const STARTUP_GRACE_MSEC := 60 * 1000
 # installation remain root-owned and arrive here as copied presentation state.
 var _update_banner: VBoxContainer
 var _update_label: Label
+var _update_status_label: Label
 var _update_btn: Button
+## The button is an action, never a status line: progress and failure text
+## goes to `_update_status_label`, and the button only enables or disables.
+const _UPDATE_ACTION_TEXT := "Update"
+const _UPDATE_LABEL_COLOR := Color(1.0, 0.85, 0.3)
 var _post_update_action := ""
+## True from the moment an update starts its client migration until the
+## server it then starts is connected. The transport reads "blocked" for
+## that whole window (the migration barrier, then the launch), which is
+## not a fault: name the phase instead of alarming the user (#999).
+var _post_update_server_pending := false
 
 func _ready() -> void:
 	_startup_grace_until_msec = Time.get_ticks_msec() + STARTUP_GRACE_MSEC
@@ -295,6 +307,15 @@ func _notification(what: int) -> void:
 		if _uv_recheck_pending:
 			_uv_recheck_pending = false
 			_refresh_setup_status.call_deferred()
+
+
+## Godot can leave its shared progress dialog under one of our modal windows.
+## Return it before removing the dock: freeing it leaves the editor's pointer dangling.
+func release_editor_progress_dialog() -> void:
+	if not is_inside_tree():
+		return
+	for dialog in find_children("*", "ProgressDialog", true, false):
+		dialog.reparent(get_tree().root)
 
 
 func _should_refresh_client_statuses_on_focus_in() -> bool:
@@ -355,7 +376,7 @@ func _build_ui() -> void:
 	status_row.add_child(icon_center)
 
 	_status_label = Label.new()
-	# Start in grace state — _update_status will take over on the next frame
+	# Start in grace state — _update_status_label will take over on the next frame
 	# once the connection is available. Never show bare "Disconnected" on
 	# first paint because that's misleading while the server is still
 	# spinning up.
@@ -438,7 +459,7 @@ func _build_ui() -> void:
 
 	_crash_docs_btn = Button.new()
 	_crash_docs_btn.text = "How to change the port"
-	_crash_docs_btn.tooltip_text = "Open the guide: change godot_ai/http_port and reconfigure your MCP clients"
+	_crash_docs_btn.tooltip_text = "Open the guide: change ports in Godot AI settings and reconfigure your MCP clients"
 	_crash_docs_btn.visible = false
 	_crash_docs_btn.pressed.connect(func(): OS.shell_open(_port_conflict_docs_url()))
 	_crash_panel.add_child(_crash_docs_btn)
@@ -453,7 +474,7 @@ func _build_ui() -> void:
 
 	_update_label = Label.new()
 	_update_label.add_theme_font_size_override("font_size", 15)
-	_update_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	_update_label.add_theme_color_override("font_color", _UPDATE_LABEL_COLOR)
 	## Wrap long banner text (e.g. the < 4.5 support-floor guidance) instead
 	## of letting a single line stretch the whole dock wide. The dock is a
 	## fixed-width side panel, so constrain horizontally and wrap.
@@ -462,11 +483,19 @@ func _build_ui() -> void:
 	_update_label.custom_minimum_size = Vector2(0, 0)
 	_update_banner.add_child(_update_label)
 
+	_update_status_label = Label.new()
+	_update_status_label.add_theme_font_size_override("font_size", 13)
+	_update_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_update_status_label.size_flags_horizontal = Control.SIZE_FILL
+	_update_status_label.custom_minimum_size = Vector2(0, 0)
+	_update_status_label.visible = false
+	_update_banner.add_child(_update_status_label)
+
 	var update_btn_row := HBoxContainer.new()
 	update_btn_row.add_theme_constant_override("separation", 6)
 
 	_update_btn = Button.new()
-	_update_btn.text = "Update"
+	_update_btn.text = _UPDATE_ACTION_TEXT
 	_update_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_update_btn.pressed.connect(_on_update_pressed)
 	update_btn_row.add_child(_update_btn)
@@ -693,13 +722,13 @@ func _build_client_row(client_id: String) -> void:
 
 	var configure_btn := Button.new()
 	configure_btn.text = "Configure"
-	configure_btn.pressed.connect(_on_configure_client.bind(client_id))
+	configure_btn.pressed.connect(_on_client_action_button_pressed.bind(client_id, "configure"))
 	row.add_child(configure_btn)
 
 	var remove_btn := Button.new()
 	remove_btn.text = "Remove"
 	remove_btn.visible = false
-	remove_btn.pressed.connect(_on_remove_client.bind(client_id))
+	remove_btn.pressed.connect(_on_client_action_button_pressed.bind(client_id, "remove"))
 	row.add_child(remove_btn)
 
 	# F-3-4: use the authoritative facade so Open/Reveal land on the same
@@ -779,6 +808,8 @@ func _update_status() -> void:
 	var state: int = int(server_status.get("state", ServerStateScript.UNINITIALIZED))
 	if ServerStateScript.blocks_client_health(state):
 		connected = false
+	if connected:
+		_post_update_server_pending = false
 
 	## One `match`/`elif` chain, one source of truth. Adding a new
 	## spawn outcome = one `ServerStateScript` constant + one arm here +
@@ -795,6 +826,16 @@ func _update_status() -> void:
 	elif connected:
 		status_text = _connected_status_text()
 		status_color = Color.GREEN
+	elif bool(server_status.get("handoff_retry_pending", false)):
+		status_text = "Recovering after update…"
+		status_color = COLOR_AMBER
+	elif state == ServerStateScript.UNSUPPORTED_CONFIG:
+		status_text = "Unsupported remote access configuration"
+		status_color = Color.RED
+	elif state == ServerStateScript.CRASHED and str(server_status.get("reason", "")) == "endpoint_lost":
+		var recovery_pending := bool(server_status.get("recovery_pending", false))
+		status_text = "Connection lost; reconnecting..." if recovery_pending else "Connection lost"
+		status_color = COLOR_AMBER if recovery_pending else Color.RED
 	elif state == ServerStateScript.CRASHED:
 		var exit_ms: int = server_status.get("exit_ms", 0)
 		status_text = "Server exited after %.1fs" % (exit_ms / 1000.0)
@@ -811,11 +852,22 @@ func _update_status() -> void:
 		var conflict_port: int = int(server_status.get("conflict_port", 0))
 		if conflict_port <= 0:
 			conflict_port = ClientConfigurator.http_port()
-		status_text = "Port %d held by another process" % conflict_port
+		status_text = (
+			"Windows port discovery unavailable" if str(server_status.get("episode_reason", "")) == "port_occupancy_unknown"
+			else "Port %d held by another process" % conflict_port
+		)
 		status_color = Color.RED
 	elif state == ServerStateScript.NO_COMMAND:
 		status_text = "No server command found"
 		status_color = Color.RED
+	elif _post_update_server_pending:
+		## Every terminal spawn failure matched above; what is left is the
+		## post-update window where the server is being brought back.
+		status_text = "Finishing update — starting server…"
+		status_color = COLOR_AMBER
+	elif state == ServerStateScript.SPAWNING:
+		status_text = "Starting server…"
+		status_color = COLOR_AMBER
 	elif not transport_status.is_empty():
 		var transport_phase := str(transport_status.get("phase", ""))
 		if transport_phase == "connecting":
@@ -921,21 +973,18 @@ func _update_crash_panel(server_status: Dictionary) -> void:
 			and not bool(server_status.get("can_recover_incompatible", false))
 		)
 
-	## #647: the quick picker only moves `godot_ai/http_port`, so hide it
-	## when the diagnosed conflict is on the WebSocket port — the crash
-	## body already points at `godot_ai/ws_port` in Editor Settings.
+	## The picker moves both ports (#647 hid it for a WebSocket-side
+	## conflict when it could only move the HTTP port), seeded with the
+	## diagnosed conflict so only the contested port changes.
 	var conflict_port := int(server_status.get("conflict_port", 0))
-	var http_conflict := conflict_port <= 0 or conflict_port == ClientConfigurator.http_port()
 	var port_picker_visible := (
-		state == ServerStateScript.PORT_EXCLUDED
-		or (state == ServerStateScript.FOREIGN_PORT and http_conflict)
+		state == ServerStateScript.PORT_EXCLUDED or state == ServerStateScript.FOREIGN_PORT
+		or (state == ServerStateScript.INCOMPATIBLE
+			and not bool(server_status.get("can_recover_incompatible", false)))
 	)
 	_port_picker_panel.visible = port_picker_visible
 	if port_picker_visible:
-		## Seed the spinbox with a suggested non-reserved port each time the
-		## panel surfaces. Idempotent when the user already has a good
-		## candidate queued up.
-		_port_picker_panel.seed_suggested_port()
+		_port_picker_panel.seed_suggested_ports(conflict_port)
 
 
 static func _crash_body_for_state(state: int, server_status: Dictionary = {}) -> String:
@@ -943,6 +992,8 @@ static func _crash_body_for_state(state: int, server_status: Dictionary = {}) ->
 	## problem; don't repeat it here. This copy answers "what do I do?".
 	var port := ClientConfigurator.http_port()
 	match state:
+		ServerStateScript.UNSUPPORTED_CONFIG:
+			return str(server_status.get("message", "Use an IPv4 allowlist or clear Allow remote hosts, then reload the plugin."))
 		ServerStateScript.PORT_EXCLUDED:
 			return "Windows (Hyper-V / WSL2 / Docker) reserved port %d. Pick a free port or try `net stop winnat; net start winnat` in an admin shell." % port
 		ServerStateScript.INCOMPATIBLE:
@@ -1015,13 +1066,16 @@ static func _crash_body_for_state(state: int, server_status: Dictionary = {}) ->
 ## server we can't prove we own, which commonly holds both ports — moving only
 ## http would then leave the new server unable to bind ws. Both suggestions are
 ## routed through `suggest_free_port` so they clear Windows' winnat reservation
-## table (no point suggesting a port that 10013s on bind). Only the http port
-## reaches client configs; the ws port is server↔plugin, hence the wording.
+## table (no point suggesting a port that 10013s on bind). Both ports reach
+## the client's attach command, so clients must be reconfigured afterwards.
 ## The per-client reconfigure steps live behind the crash panel's docs link.
 static func _free_port_hint(port: int) -> String:
-	var free_http := ClientConfigurator.suggest_free_port(port + 1)
-	var free_ws := ClientConfigurator.suggest_free_port(ClientConfigurator.ws_port() + 1)
-	return "Ports %d (HTTP) and %d (WS) are free — set `godot_ai/http_port` and `godot_ai/ws_port` in Editor Settings, then update your client config with the new HTTP port (How to change the port, below)." % [free_http, free_ws]
+	var occupancy := PortResolver.windows_listener_snapshot() if OS.get_name() == "Windows" else {}
+	var free_http := ClientConfigurator.suggest_free_port(port + 1, 2048, occupancy)
+	var free_ws := ClientConfigurator.suggest_free_port(ClientConfigurator.ws_port() + 1, 2048, occupancy)
+	if free_http == 0 or free_ws == 0:
+		return "Automatic port selection is unavailable. Choose HTTP and WS ports manually below, or retry."
+	return "Suggested ports: %d (HTTP) and %d (WS). Choose both ports below, click Apply + Reload, then Configure your AI clients to use the new pair." % [free_http, free_ws]
 
 
 ## URL for the port-conflict guide, pinned to the release tag that matches the
@@ -1048,8 +1102,8 @@ func _on_log_logging_enabled_changed(enabled: bool) -> void:
 
 ## Signal handler for the extracted PortPickerPanel. The replaceable Dock emits
 ## a copied value intent; the composition root owns persistence and reload.
-func _on_port_apply_requested(new_port: int) -> void:
-	settings_apply_requested.emit({"http_port": new_port}, true)
+func _on_port_apply_requested(new_http_port: int, new_ws_port: int) -> void:
+	settings_apply_requested.emit({"http_port": new_http_port, "ws_port": new_ws_port}, true)
 
 
 func _refresh_server_label(server_status: Dictionary = {}) -> void:
@@ -1207,7 +1261,7 @@ func _apply_dev_mode_visibility() -> void:
 	# (so users can install uv from the dock) — but not while the server
 	# launch is still settling (#744): mid-launch a red "uv: not found" row
 	# is usually a transient probe failure (#739) or irrelevant because the
-	# launch is succeeding via the .venv or system tiers. `_update_status`
+	# launch is succeeding via the .venv or system tiers. `_update_status_label`
 	# re-applies visibility on every status transition, so the section
 	# appears the moment the launch outcome makes it relevant.
 	var is_dev := ClientConfigurator.is_dev_checkout()
@@ -1228,7 +1282,7 @@ static func _setup_section_should_show(
 ## True while the server launch outcome is still unknown: not connected,
 ## no terminal diagnosis yet, and the startup grace window ("Starting
 ## server…" in the status row) is still running. Mirrors the status-label
-## logic in `_update_status` so the Setup section and the amber status
+## logic in `_update_status_label` so the Setup section and the amber status
 ## text agree on what "still launching" means.
 func _server_launch_pending() -> bool:
 	if _last_connected:
@@ -1708,8 +1762,13 @@ func _on_configure_client(client_id: String) -> void:
 	_dispatch_client_action(client_id, "configure")
 
 
-func _on_remove_client(client_id: String) -> void:
-	_dispatch_client_action(client_id, "remove")
+func _on_client_action_button_pressed(client_id: String, action: String) -> void:
+	if _is_self_update_in_progress():
+		return
+	if _client_work_snapshot.get("action_phases", {}).get(client_id, "") == "queued":
+		client_action_cancel_requested.emit(client_id)
+		return
+	_dispatch_client_action(client_id, action)
 
 
 ## Emit a value intent; plugin.gd routes it to the plugin-lifetime job owner.
@@ -1734,6 +1793,12 @@ func present_client_action_result(
 ) -> void:
 	_report_prewarm_outcome(client_id, prewarm)
 	_finalize_action_buttons(client_id)
+	if result.get("status") == "cancelled":
+		var row: Dictionary = _client_rows.get(client_id, {})
+		if not row.is_empty():
+			_apply_row_status(client_id, row.get("status", Client.Status.NOT_CONFIGURED))
+		_refresh_clients_summary()
+		return
 	var success_status := Client.Status.NOT_CONFIGURED if action == "remove" else Client.Status.CONFIGURED
 	if result.get("status") == "ok":
 		## #877: Remove targets only the selected scope, so a configure is the
@@ -1768,7 +1833,11 @@ func present_client_work_snapshot(snapshot: Dictionary) -> void:
 		var id := String(client_id)
 		if busy.has(id):
 			_set_row_action_in_flight(id, String(names.get(id, "configure")))
-			if String(phases.get(id, "")) == "prewarm":
+			if String(phases.get(id, "")) == "queued":
+				var button := "remove_btn" if String(names.get(id, "configure")) == "remove" else "configure_btn"
+				(_client_rows[id][button] as Button).text = "Cancel queued"
+				(_client_rows[id][button] as Button).disabled = false
+			elif String(phases.get(id, "")) == "prewarm":
 				(_client_rows[id]["configure_btn"] as Button).text = "Installing…"
 		else:
 			_finalize_action_buttons(id)
@@ -2080,7 +2149,8 @@ func _build_tools_tab(tabs: TabContainer) -> void:
 
 	_update_confirm = ConfirmationDialog.new()
 	_update_confirm.title = "Update Godot AI?"
-	_update_confirm.ok_button_text = "Save & Update"
+	_update_confirm.ok_button_text = "Update plugin"
+	_update_confirm.cancel_button_text = "Later"
 	_update_confirm.confirmed.connect(_on_update_confirmed)
 	add_child(_update_confirm)
 
@@ -2297,9 +2367,19 @@ func _build_settings_tab(tabs: TabContainer) -> void:
 	## `_reset_tools_pending_from_setting` / `_on_open_clients_window`).
 	var settings_tab := VBoxContainer.new()
 	settings_tab.add_theme_constant_override("separation", 8)
+	settings_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## The section stack below (Vision Routing + Remote access) can outgrow
+	## the window's minimum height, especially at larger editor scales —
+	## scroll instead of growing the window, same idiom as the Clients and
+	## Tools tabs (#1090).
+	var settings_scroll := ScrollContainer.new()
+	settings_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	settings_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	settings_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	settings_scroll.add_child(settings_tab)
 	var settings_margin := _build_margin_container()
 	settings_margin.name = "Settings"
-	settings_margin.add_child(settings_tab)
+	settings_margin.add_child(settings_scroll)
 	tabs.add_child(settings_margin)
 
 	## Vision Routing is configuration, not status — it lives here rather
@@ -2410,25 +2490,17 @@ func _on_allow_hosts_text_changed(_new_text: String) -> void:
 func _refresh_allow_hosts_ui_state() -> void:
 	if _allow_hosts_edit == null or _allow_hosts_apply_btn == null:
 		return
-	var invalid := McpAllowHosts.invalid_tokens(_allow_hosts_edit.text)
-	if invalid.is_empty():
-		_allow_hosts_hint.visible = false
-	else:
-		## Name the accepted syntax in the hint — matches the server's
-		## `parse_allow_hosts` (CIDR / bare IP, comma-separated).
-		_allow_hosts_hint.text = (
-			"Invalid entries (must be a CIDR like 192.168.1.0/24 or a bare IP, comma-separated): %s"
-			% ", ".join(invalid)
-		)
-		_allow_hosts_hint.visible = true
-	_allow_hosts_apply_btn.disabled = not _allow_hosts_is_dirty() or not invalid.is_empty()
+	var error := McpAllowHosts.configuration_error(_allow_hosts_edit.text)
+	_allow_hosts_hint.text = error
+	_allow_hosts_hint.visible = not error.is_empty()
+	_allow_hosts_apply_btn.disabled = not _allow_hosts_is_dirty() or not error.is_empty()
 
 
 func _on_allow_hosts_apply() -> void:
 	if _allow_hosts_edit == null:
 		return
 	var normalized := McpAllowHosts.normalize(_allow_hosts_edit.text)
-	if not McpAllowHosts.invalid_tokens(normalized).is_empty():
+	if not McpAllowHosts.configuration_error(normalized).is_empty():
 		return
 	_allow_hosts_saved = normalized
 	_allow_hosts_edit.text = normalized
@@ -2721,12 +2793,12 @@ func _on_update_pressed() -> void:
 	if not _post_update_action.is_empty():
 		post_update_action_requested.emit(_post_update_action)
 		return
-	## The update saves every open scene, swaps the add-on tree and relaunches
-	## the editor (docs/self-update.md, step 8). Ask before doing that to a
-	## user's session. A dock that is not in a scene tree has no dialog to
-	## show and proceeds directly.
+	## Updating briefly disconnects AI tools while the add-on is replaced.
+	## A dock outside the scene tree has no dialog and proceeds directly.
 	if _update_confirm != null and is_inside_tree():
-		_update_confirm.dialog_text = update_confirm_text(_update_candidate_version)
+		_update_confirm.dialog_text = update_confirm_text(
+			_update_candidate_version, ClientConfigurator.get_plugin_version()
+		)
 		_update_confirm.popup_centered()
 		return
 	update_requested.emit()
@@ -2736,36 +2808,76 @@ func _on_update_confirmed() -> void:
 	update_requested.emit()
 
 
-static func update_confirm_text(version: String) -> String:
+static func update_confirm_text(version: String, current_version: String) -> String:
 	var target := "Godot AI v%s" % version if not version.is_empty() else "the new Godot AI"
-	return (
-		"This will save your project and relaunch the editor to install %s.\n"
-		+ "AI clients connected right now must be restarted afterwards.\n\nContinue?"
-	) % target
+	var text := "Update to %s? Unsaved changes are kept." % target
+	if McpServerVersionCheck.attached_bridges_follow(current_version, version):
+		text += "\n\nRestart AI clients older than v4.0.4."
+	else:
+		text += "\n\nRestart your AI client after updating."
+	return text
 
 
 func present_update_check(result: Dictionary) -> void:
 	_update_candidate_version = String(result.get("version", ""))
 	_update_label.text = String(result.get("label_text", ""))
+	_update_label.add_theme_color_override("font_color", _UPDATE_LABEL_COLOR)
 	_update_banner.visible = true
+	## A fresh candidate re-arms the action. The restarted editor after an
+	## update shows "Godot AI installed" with the button disabled; a newer release
+	## found later in that same session must still be installable. A running
+	## install or a pending post-update action keeps ownership of the button.
+	if _update_install_in_flight or not _post_update_action.is_empty():
+		return
+	_set_update_status("")
+	if _update_btn != null:
+		_update_btn.text = _UPDATE_ACTION_TEXT
+		_update_btn.disabled = false
 
 
 ## Apply only the keys present so the manager can ship partial updates
-## (e.g. button-text-only during the download phase) without clobbering
-## banner state.
+## (e.g. status-only during the download phase) without clobbering banner
+## state. `button_text` names an action ("Retry client migration");
+## progress and failure messages arrive as `status_text` and never replace
+## the button label.
 func present_update_state(state: Dictionary) -> void:
 	if state.has("post_update_action"):
 		_post_update_action = String(state["post_update_action"])
+		if _post_update_action.is_empty() and _update_btn != null:
+			_update_btn.text = _UPDATE_ACTION_TEXT
 	if state.has("install_in_flight"):
 		_update_install_in_flight = bool(state["install_in_flight"])
+	if String(state.get("post_update_action", "")) == "retry":
+		## The migration barrier refused: the connection really is blocked.
+		_post_update_server_pending = false
+	elif bool(state.get("install_in_flight", false)) or String(state.get("outcome", "")) == "success":
+		_post_update_server_pending = true
+		if _status_label != null:
+			_update_status()
+	elif state.has("install_in_flight"):
+		## The install ended without a swap (`_fail_update`): the previous
+		## version is live and the transport status is the truth again.
+		_post_update_server_pending = false
+		if _status_label != null:
+			_update_status()
 	if state.has("button_text") and _update_btn != null:
 		_update_btn.text = String(state["button_text"])
 	if state.has("button_disabled") and _update_btn != null:
 		_update_btn.disabled = bool(state["button_disabled"])
+	if state.has("status_text"):
+		_set_update_status(String(state["status_text"]))
 	if state.has("label_text") and _update_label != null:
 		_update_label.text = String(state["label_text"])
 	if state.has("banner_visible") and _update_banner != null:
 		_update_banner.visible = bool(state["banner_visible"])
-	if String(state.get("outcome", "")) == "success" and _update_label != null:
-		## Visual confirmation for successful terminal update states.
-		_update_label.add_theme_color_override("font_color", Color.GREEN)
+	if state.has("label_text") and _update_label != null:
+		## Installation is distinct from server/client readiness. Instructions
+		## can still name failed migrations or clients that must reconnect.
+		_update_label.add_theme_color_override("font_color", _UPDATE_LABEL_COLOR)
+
+
+func _set_update_status(text: String) -> void:
+	if _update_status_label == null:
+		return
+	_update_status_label.text = text
+	_update_status_label.visible = not text.is_empty()

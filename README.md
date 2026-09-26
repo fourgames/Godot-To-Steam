@@ -1,5 +1,7 @@
 # GodotPipe
 
+[![GodotPipe video: export a Godot project and publish it to itch.io and Steam](https://img.youtube.com/vi/ksOVssbsI_E/maxresdefault.jpg)](https://youtu.be/ksOVssbsI_E)
+
 > **Get a stable build on [itch.io](https://fourgamesab.itch.io/godotpipe).** The downloads there are tested releases, ready to run, without the repo's extra files. They're paid, which supports development.
 > The source code here is free and open source, but you'll need to build it yourself with Godot, and it may be experimental.
 
